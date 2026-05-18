@@ -70,10 +70,10 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
               color: "#f1f5f9",
             }}
             labelStyle={{ color: "#e2e8f0", fontWeight: 700 }}
-            formatter={(value: number, _name, props) => [
+            formatter={((value: unknown, _name: unknown, item: { payload?: { phase?: string } }) => [
               `${value} ${iLabel}`,
-              `Current (${props.payload?.phase ?? ""})`,
-            ]}
+              `Current (${item?.payload?.phase ?? ""})`,
+            ]) as never}
           />
           <Legend wrapperStyle={{ fontSize: 12, color: "#e2e8f0" }} />
           <Area

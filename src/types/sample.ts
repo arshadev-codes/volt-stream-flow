@@ -1,14 +1,19 @@
 /**
- * Core data contract for the Linear Voltage Testing System.
- * Kept in /types so it can be shared by services, hooks, and components.
+ * Core data contract for the Reactor Linearity Testing System.
  */
-export interface Sample {
-  time: number;     // seconds (canonical unit, converted at render time)
-  voltage: number;  // volts
-  current: number;  // amperes (canonical unit, converted at render time)
+export type ReactorPhase = "idle" | "ramp_up" | "peak" | "decay" | "completed";
+
+export interface ReactorSample {
+  time: number;     // seconds
+  current: number;  // amperes (canonical)
+  voltage?: number; // volts (optional)
+  phase: "ramp_up" | "peak" | "decay";
 }
+
+// Back-compat alias used by some components.
+export type Sample = ReactorSample;
 
 export type TimeUnit = "S" | "MS";
 export type CurrentUnit = "A" | "mA";
 
-export type TestStatus = "idle" | "running" | "stopped";
+export type TestStatus = ReactorPhase;

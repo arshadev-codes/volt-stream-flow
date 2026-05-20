@@ -3,9 +3,12 @@ import type { ReactorSample } from "@/types/sample";
 /**
  * Reactor linearity simulation engine.
  *
- * Linear rise → linear fall (triangle profile) — no peak hold.
- * Streams in real-time. Service is isolated so it can be swapped for
- * PLC / Modbus / WebSocket data without touching the UI.
+ * Models IEC 60076-6 B.7.2 DC charge / discharge behavior:
+ *   - Charge phase: I(t) = Ipeak * (1 - exp(-t / τc))  → fast rise toward peak
+ *   - Discharge:    I(t) = Iswitch * exp(-t / τd)      → exponential decay
+ *
+ * No peak hold — the moment charging completes (or Stop is pressed) we
+ * transition straight into exponential decay. Streams in real time.
  */
 
 export type ReactorPhaseRuntime = "ramp_up" | "decay" | "completed";
@@ -24,17 +27,21 @@ export interface ReactorSource {
 
 export interface ReactorConfig {
   tickMs?: number;
-  peakCurrent?: number;   // A
-  rampDurationS?: number;
-  decayDurationS?: number;
+  peakCurrent?: number;     // A
+  chargeDurationS?: number; // total time allowed for charging
+  chargeTauS?: number;      // charge time-constant (smaller = faster rise)
+  decayTauS?: number;       // discharge time-constant
+  decayCutoffRatio?: number;// stop when current < ratio * Iswitch
   nominalVoltage?: number;
 }
 
 const DEFAULTS: Required<ReactorConfig> = {
-  tickMs: 100,
+  tickMs: 80,
   peakCurrent: 100,
-  rampDurationS: 6,
-  decayDurationS: 6,
+  chargeDurationS: 3,
+  chargeTauS: 0.7,
+  decayTauS: 2.2,
+  decayCutoffRatio: 0.01,
   nominalVoltage: 230,
 };
 
@@ -51,7 +58,7 @@ export function createReactorSource(config: ReactorConfig = {}): ReactorSource {
       let elapsed = 0;
       let phase: ReactorPhaseRuntime = "ramp_up";
       let phaseStart = 0;
-      let switchCurrent = 0; // current at moment ramp ended
+      let switchCurrent = 0;
 
       const id = setInterval(() => {
         elapsed = +(elapsed + tickS).toFixed(3);
@@ -60,21 +67,28 @@ export function createReactorSource(config: ReactorConfig = {}): ReactorSource {
         let current = 0;
 
         if (phase === "ramp_up") {
-          // Strict linear rise.
-          const p = Math.min(1, tInPhase / cfg.rampDurationS);
-          current = cfg.peakCurrent * p;
+          // Exponential approach to peak — fast initial rise, gentle curl near top.
+          current = cfg.peakCurrent * (1 - Math.exp(-tInPhase / cfg.chargeTauS));
 
-          if (decayRequested || p >= 1) {
+          const shouldSwitch = decayRequested || tInPhase >= cfg.chargeDurationS;
+          if (shouldSwitch) {
+            // Emit the apex sample now, then flip to decay on the next tick.
             switchCurrent = current;
+            const apex: ReactorSample = {
+              time: elapsed,
+              current: round(current, 3),
+              voltage: round(cfg.nominalVoltage + (Math.random() - 0.5) * 1.2, 2),
+              phase: "ramp_up",
+            };
+            handler({ sample: apex, phase: "ramp_up" });
             phase = "decay";
             phaseStart = elapsed;
+            return;
           }
         } else if (phase === "decay") {
-          // Strict linear fall from wherever we switched.
-          const p = Math.min(1, tInPhase / cfg.decayDurationS);
-          current = switchCurrent * (1 - p);
+          current = switchCurrent * Math.exp(-tInPhase / cfg.decayTauS);
 
-          if (p >= 1) {
+          if (current <= switchCurrent * cfg.decayCutoffRatio) {
             const finalSample: ReactorSample = {
               time: elapsed,
               current: 0,

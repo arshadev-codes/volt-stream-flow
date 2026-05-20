@@ -83,8 +83,7 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
             stroke="#fb923c"
             strokeWidth={2.5}
             fill="url(#currentFill)"
-            isAnimationActive
-            animationDuration={300}
+            isAnimationActive={false}
             dot={false}
           />
         </AreaChart>

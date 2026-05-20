@@ -1,13 +1,13 @@
 /**
  * Core data contract for the Reactor Linearity Testing System.
  */
-export type ReactorPhase = "idle" | "ramp_up" | "peak" | "decay" | "completed";
+export type ReactorPhase = "idle" | "ramp_up" | "decay" | "completed";
 
 export interface ReactorSample {
   time: number;     // seconds
   current: number;  // amperes (canonical)
   voltage?: number; // volts (optional)
-  phase: "ramp_up" | "peak" | "decay";
+  phase: "ramp_up" | "decay";
 }
 
 // Back-compat alias used by some components.

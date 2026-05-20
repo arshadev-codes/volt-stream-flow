@@ -18,7 +18,7 @@ export function TestController({
   onStart, onStop, onClear,
   onTimeUnitChange, onCurrentUnitChange,
 }: Props) {
-  const isRunning = status === "ramp_up" || status === "peak" || status === "decay";
+  const isRunning = status === "ramp_up" || status === "decay";
   const canStart = status === "idle" || status === "completed";
 
   return (

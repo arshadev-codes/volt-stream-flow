@@ -20,9 +20,8 @@ export const Route = createFileRoute("/")({
 
 const PHASE_LABEL: Record<ReactorPhase, string> = {
   idle: "Idle",
-  ramp_up: "Ramp Up",
-  peak: "Peak Hold",
-  decay: "Decay",
+  ramp_up: "Charging",
+  decay: "Discharging",
   completed: "Completed",
 };
 

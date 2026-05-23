@@ -1,0 +1,15 @@
+{
+  "name": "Electrosoft Automation — Reactor Linearity Testing System",
+  "short_name": "Electrosoft RLTS",
+  "description": "Industrial reactor linearity testing dashboard by Electrosoft Automation.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b1220",
+  "theme_color": "#f59e0b",
+  "icons": [
+    { "src": "/electrosoft-logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/electrosoft-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

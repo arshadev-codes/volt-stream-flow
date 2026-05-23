@@ -27,9 +27,9 @@ export function BrandHeader({ theme, onToggleTheme }: { theme: Theme; onToggleTh
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="hidden rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] text-muted-foreground md:block">
+        {/* <div className="hidden rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] text-muted-foreground md:block">
           REACTOR-01 · 100A peak · 230V nominal
-        </div>
+        </div> */}
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
     </header>

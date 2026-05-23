@@ -21,12 +21,12 @@ export const Route = createFileRoute("/")({
   }),
 });
 
-const PHASE_LABEL: Record<ReactorPhase, string> = {
-  idle: "Idle",
-  ramp_up: "Charging",
-  decay: "Discharging",
-  completed: "Completed",
-};
+// const PHASE_LABEL: Record<ReactorPhase, string> = {
+//   idle: "Idle",
+//   ramp_up: "Charging",
+//   decay: "Discharging",
+//   completed: "Completed",
+// };
 
 function Dashboard() {
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("S");
@@ -52,9 +52,9 @@ function Dashboard() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <StatCard label="Live Current"  value={fmtCurrent(latestCurrent)} unit={currentUnitLabel(currentUnit)} accent="current" />
             <StatCard label="Peak Current"  value={fmtCurrent(peakCurrent)}   unit={currentUnitLabel(currentUnit)} accent="peak" />
-            <StatCard label="Phase"         value={PHASE_LABEL[phase]} accent="phase" />
+            {/* <StatCard label="Phase"         value={PHASE_LABEL[phase]} accent="phase" /> */}
             <StatCard label="Test Duration" value={duration.toFixed(2)} unit="s" accent="duration" />
-            <StatCard label="Sample Buffer" value={totalSamples} unit="/200" accent="samples" />
+            {/* <StatCard label="Sample Buffer" value={totalSamples} unit="/200" accent="samples" /> */}
           </div>
 
           <TestController
@@ -89,10 +89,10 @@ function Dashboard() {
           </div>
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            <div className="flex items-center gap-2"><Cpu        className="h-3.5 w-3.5" /> Simulation · 80 ms tick · buffer 200</div>
+            {/* <div className="flex items-center gap-2"><Cpu        className="h-3.5 w-3.5" /> Simulation · 80 ms tick · buffer 200</div>
             <div className="flex items-center gap-2"><TrendingUp className="h-3.5 w-3.5" /> Exponential rise · decay</div>
             <div className="flex items-center gap-2"><Activity   className="h-3.5 w-3.5" /> PLC / Modbus / WebSocket ready</div>
-            <div className="flex items-center gap-2"><Timer      className="h-3.5 w-3.5" /> Multi-channel ready</div>
+            <div className="flex items-center gap-2"><Timer      className="h-3.5 w-3.5" /> Multi-channel ready</div> */}
           </footer>
 
           <div className="pt-1 text-center font-mono text-[10px] tracking-[0.3em] text-muted-foreground">

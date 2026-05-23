@@ -150,7 +150,7 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
             }) as never}
           />
           <Legend
-            wrapperStyle={{ fontSize: 11, color: "var(--muted-foreground)", fontFamily: "var(--font-mono)", paddingTop: 8 }}
+            wrapperStyle={{ fontSize: 11, color: "var(--muted-foreground)", fontFamily: "var(--font-mono)", paddingTop: 22 }}
             iconType="line"
           />
 

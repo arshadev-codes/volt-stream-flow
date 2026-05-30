@@ -5,7 +5,7 @@ const MAP: Record<ReactorPhase, { label: string; color: string }> = {
   idle:      { label: "IDLE",        color: "var(--muted-foreground)" },
   ramp_up:   { label: "CHARGING",    color: "var(--current)" },
   decay:     { label: "DISCHARGING", color: "var(--voltage)" },
-  completed: { label: "COMPETED",   color: "var(--ok)" },
+  completed: { label: "COMPLETED",   color: "var(--ok)" },
 };
 
 export function StatusBadge({ status }: { status: ReactorPhase }) {

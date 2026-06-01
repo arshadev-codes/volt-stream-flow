@@ -1,46 +1,104 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { Activity, Cpu, Gauge, Timer, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Gauge, Maximize2 } from "lucide-react";
 import { TestController } from "@/components/TestController";
 import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
 import { StatCard } from "@/components/StatCard";
 import { BrandHeader } from "@/components/BrandHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";
+import { TestObjectSearch } from "@/components/TestObjectSearch";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { GraphModal } from "@/components/GraphModal";
 import { useReactorTesting } from "@/hooks/useReactorTesting";
 import { useTheme } from "@/hooks/useTheme";
-import type { CurrentUnit, ReactorPhase, TimeUnit } from "@/types/sample";
+import { useTestObjects } from "@/hooks/useTestObjects";
+import type { CurrentUnit, TimeUnit } from "@/types/sample";
 import { convertCurrentUnit, currentUnitLabel } from "@/utils/unitConversion";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
   head: () => ({
     meta: [
-      { title: "Electrosoft Automation — Reactor Linearity Testing System" },
+      { title: "Testing — Electrosoft Automation RLTS" },
       { name: "description", content: "Real-time reactor excitation rise and exponential decay monitoring." },
     ],
   }),
 });
 
-// const PHASE_LABEL: Record<ReactorPhase, string> = {
-//   idle: "Idle",
-//   ramp_up: "Charging",
-//   decay: "Discharging",
-//   completed: "Completed",
-// };
-
 function Dashboard() {
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("S");
   const [currentUnit, setCurrentUnit] = useState<CurrentUnit>("A");
+  const [showCurrent, setShowCurrent] = useState(true);
+  const [showVoltage, setShowVoltage] = useState(true);
+  const [expand, setExpand] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [pendingPassFail, setPendingPassFail] = useState(false);
+
   const { theme, toggle } = useTheme();
+  const { objects, reports, saveReport, getReport, getObject } = useTestObjects();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const {
     samples, phase, duration,
-    latestCurrent, peakCurrent, totalSamples,
+    latestCurrent, peakCurrent,
     start, stop, reset,
   } = useReactorTesting();
 
+  const selectedObject = selectedId ? getObject(selectedId) : null;
+  const hasExistingReport = selectedId ? !!getReport(selectedId) : false;
+
   const fmtCurrent = (v: number) =>
     convertCurrentUnit(v, currentUnit).toFixed(currentUnit === "mA" ? 0 : 2);
+
+  const beginTest = () => {
+    if (!selectedId) {
+      alert("Select a test object from the search bar first.");
+      return;
+    }
+    if (hasExistingReport) {
+      setConfirmOverwrite(true);
+      return;
+    }
+    reset();
+    start();
+  };
+
+  const confirmedStart = () => {
+    setConfirmOverwrite(false);
+    reset();
+    start();
+  };
+
+  // When test completes, prompt for Pass/Fail
+  useEffect(() => {
+    if (phase === "completed" && selectedId && samples.length > 0) {
+      setPendingPassFail(true);
+    }
+  }, [phase, selectedId, samples.length]);
+
+  const finalize = (status: "passed" | "failed") => {
+    if (!selectedId) return;
+    saveReport({
+      objectId: selectedId,
+      status,
+      samples,
+      peakCurrent,
+      durationS: duration,
+      completedAt: Date.now(),
+    });
+    setPendingPassFail(false);
+  };
+
+  const graphView = (
+    <VoltageCurrentGraph
+      samples={samples}
+      timeUnit={timeUnit}
+      currentUnit={currentUnit}
+      peakCurrent={peakCurrent}
+      showCurrent={showCurrent}
+      showVoltage={showVoltage}
+    />
+  );
 
   return (
     <>
@@ -49,19 +107,40 @@ function Dashboard() {
         <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 lg:px-8">
           <BrandHeader theme={theme} onToggleTheme={toggle} />
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {/* Test object selection */}
+          <div className="panel flex flex-wrap items-center justify-between gap-4 p-4">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-muted-foreground">
+                Active Test Object
+              </div>
+              <div className="mt-1 text-sm font-semibold text-foreground">
+                {selectedObject ? `${selectedObject.serialNumber} · ${selectedObject.name}` : "None selected"}
+              </div>
+              {selectedObject && (
+                <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {selectedObject.peakCurrent} A peak · {selectedObject.maxVoltage} V max
+                  {hasExistingReport && (
+                    <span className="ml-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-500">
+                      report exists
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            <TestObjectSearch objects={objects} selectedId={selectedId} onSelect={setSelectedId} />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard label="Live Current"  value={fmtCurrent(latestCurrent)} unit={currentUnitLabel(currentUnit)} accent="current" />
             <StatCard label="Peak Current"  value={fmtCurrent(peakCurrent)}   unit={currentUnitLabel(currentUnit)} accent="peak" />
-            {/* <StatCard label="Phase"         value={PHASE_LABEL[phase]} accent="phase" /> */}
             <StatCard label="Test Duration" value={duration.toFixed(2)} unit="s" accent="duration" />
-            {/* <StatCard label="Sample Buffer" value={totalSamples} unit="/200" accent="samples" /> */}
           </div>
 
           <TestController
             status={phase}
             timeUnit={timeUnit}
             currentUnit={currentUnit}
-            onStart={start}
+            onStart={beginTest}
             onStop={stop}
             onClear={reset}
             onTimeUnitChange={setTimeUnit}
@@ -74,48 +153,101 @@ function Dashboard() {
                 <Gauge className="h-4 w-4 text-[var(--current)]" />
                 Reactor Linearity Curve
               </div>
-              <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                <LegendChip color="var(--current)" label="Current" />
-                <LegendChip color="var(--voltage)" label="Voltage" dashed />
-                <LegendChip color="var(--peak)"    label="Peak Ref" dashed />
+              <div className="flex flex-wrap items-center gap-3">
+                <ChannelToggle
+                  label="Current" color="var(--current)"
+                  checked={showCurrent} onChange={setShowCurrent}
+                />
+                <ChannelToggle
+                  label="Voltage" color="var(--voltage)"
+                  checked={showVoltage} onChange={setShowVoltage}
+                />
+                <button
+                  onClick={() => setExpand(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground transition hover:bg-accent"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" /> View
+                </button>
               </div>
             </div>
-            <VoltageCurrentGraph
-              samples={samples}
-              timeUnit={timeUnit}
-              currentUnit={currentUnit}
-              peakCurrent={peakCurrent}
-            />
+            {graphView}
           </div>
-
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            {/* <div className="flex items-center gap-2"><Cpu        className="h-3.5 w-3.5" /> Simulation · 80 ms tick · buffer 200</div>
-            <div className="flex items-center gap-2"><TrendingUp className="h-3.5 w-3.5" /> Exponential rise · decay</div>
-            <div className="flex items-center gap-2"><Activity   className="h-3.5 w-3.5" /> PLC / Modbus / WebSocket ready</div>
-            <div className="flex items-center gap-2"><Timer      className="h-3.5 w-3.5" /> Multi-channel ready</div> */}
-          </footer>
 
           <div className="pt-1 text-center font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
             © {new Date().getFullYear()} ELECTROSOFT AUTOMATION · RLTS v2.1
           </div>
         </div>
       </div>
+
+      {/* Expanded graph modal */}
+      <GraphModal open={expand} onClose={() => setExpand(false)} title="Reactor Linearity Curve">
+        {graphView}
+      </GraphModal>
+
+      {/* Overwrite warning */}
+      <ConfirmDialog
+        open={confirmOverwrite}
+        title="Overwrite existing report?"
+        description={
+          <>
+            A report already exists for{" "}
+            <span className="font-semibold text-foreground">{selectedObject?.serialNumber}</span>.
+            Running a new test will <strong className="text-destructive">overwrite</strong> the previously
+            stored data. Continue?
+          </>
+        }
+        destructive
+        confirmLabel="Overwrite & Start"
+        onCancel={() => setConfirmOverwrite(false)}
+        onConfirm={confirmedStart}
+      />
+
+      {/* Pass/Fail prompt after completion */}
+      {pendingPassFail && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 backdrop-blur-md">
+          <div className="panel w-full max-w-md p-6 text-center">
+            <h2 className="font-display text-lg font-bold tracking-wide text-foreground">
+              Mark Test Result
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Test for <span className="font-semibold text-foreground">{selectedObject?.serialNumber}</span> completed.
+              Save it as Passed or Failed?
+            </p>
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                onClick={() => finalize("failed")}
+                className="rounded-md bg-destructive px-5 py-2 text-xs font-bold uppercase tracking-widest text-destructive-foreground hover:brightness-110"
+              >
+                Failed
+              </button>
+              <button
+                onClick={() => finalize("passed")}
+                className="rounded-md bg-[var(--ok)] px-5 py-2 text-xs font-bold uppercase tracking-widest text-background hover:brightness-110"
+              >
+                Passed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
-function LegendChip({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
+function ChannelToggle({
+  label, color, checked, onChange,
+}: { label: string; color: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className="h-0.5 w-5"
-        style={{
-          background: dashed
-            ? `repeating-linear-gradient(90deg, ${color} 0 4px, transparent 4px 8px)`
-            : color,
-        }}
+    <label className="inline-flex cursor-pointer select-none items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground hover:bg-accent">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 accent-current"
+        style={{ accentColor: color }}
       />
+      <span className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
       {label}
-    </span>
+    </label>
   );
 }

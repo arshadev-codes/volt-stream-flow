@@ -156,30 +156,34 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
             iconType="line"
           />
 
-          <Area
-            yAxisId="left"
-            type="monotone"
-            dataKey="current"
-            name={`Current (${iLabel})`}
-            stroke="var(--current)"
-            strokeWidth={2.4}
-            fill="url(#currentFill)"
-            isAnimationActive={false}
-            dot={false}
-            activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--background)" }}
-          />
-          <Line
-            yAxisId="right"
-            type="monotone"
-            dataKey="voltage"
-            name="Voltage (V)"
-            stroke="var(--voltage)"
-            strokeWidth={1.4}
-            strokeDasharray="3 3"
-            dot={false}
-            isAnimationActive={false}
-            connectNulls
-          />
+          {showCurrent && (
+            <Area
+              yAxisId="left"
+              type="monotone"
+              dataKey="current"
+              name={`Current (${iLabel})`}
+              stroke="var(--current)"
+              strokeWidth={2.4}
+              fill="url(#currentFill)"
+              isAnimationActive={false}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--background)" }}
+            />
+          )}
+          {showVoltage && (
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="voltage"
+              name="Voltage (V)"
+              stroke="var(--voltage)"
+              strokeWidth={1.4}
+              strokeDasharray="3 3"
+              dot={false}
+              isAnimationActive={false}
+              connectNulls
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
       <div className="mt-1 flex items-center justify-between px-2 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">

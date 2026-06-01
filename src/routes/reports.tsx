@@ -5,7 +5,7 @@ import { BrandHeader } from "@/components/BrandHeader";
 import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
 import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
-import type { TestObject, TestStatus } from "@/types/testObject";
+import type { TestObject, TestReport, TestStatus } from "@/types/testObject";
 import { exportReportPdf } from "@/utils/pdfReport";
 
 export const Route = createFileRoute("/reports")({
@@ -151,7 +151,7 @@ function Pending({ object }: { object: TestObject }) {
   );
 }
 
-function ReportDetail({ object, report }: { object: TestObject; report: NonNullable<ReturnType<ReturnType<typeof useTestObjects>["getReport"]>> }) {
+function ReportDetail({ object, report }: { object: TestObject; report: TestReport }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">

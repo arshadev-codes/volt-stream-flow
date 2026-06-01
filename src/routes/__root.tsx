@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { AppSidebar } from "@/components/AppSidebar";
 
 function NotFoundComponent() {
   return (
@@ -123,7 +124,12 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <div className="flex min-h-screen w-full">
+        <AppSidebar />
+        <main className="min-w-0 flex-1">
+          <Outlet />
+        </main>
+      </div>
     </QueryClientProvider>
   );
 }

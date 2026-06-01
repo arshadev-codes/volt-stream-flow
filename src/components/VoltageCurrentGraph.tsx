@@ -13,6 +13,8 @@ interface Props {
   timeUnit: TimeUnit;
   currentUnit: CurrentUnit;
   peakCurrent: number;
+  showCurrent?: boolean;
+  showVoltage?: boolean;
 }
 
 /**
@@ -36,7 +38,7 @@ function buildTicks(maxTime: number, unit: TimeUnit): number[] {
   return out;
 }
 
-export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurrent }: Props) {
+export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurrent, showCurrent = true, showVoltage = true }: Props) {
   const { data, ticks, maxT } = useMemo(() => {
     const d = samples.map((s) => ({
       time:    +convertTimeUnit(s.time, timeUnit).toFixed(timeUnit === "MS" ? 0 : 3),

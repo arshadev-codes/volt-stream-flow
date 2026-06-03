@@ -250,35 +250,40 @@ function ChartSvg({ points }: { points: RawPoint[] }) {
   const yTicks = 5;
   const xTicks = 5;
 
+  const yTickVals = Array.from({ length: yTicks + 1 }, (_, i) => iMax * (1 - i / yTicks));
+  const xTickVals = Array.from({ length: xTicks + 1 }, (_, i) => (tMax * i) / xTicks);
+
   return (
     <View>
-      <Svg width={CHART_W} height={CHART_H} style={{ borderWidth: 1, borderColor: C.line, borderRadius: 4, backgroundColor: "#FFF" }}>
-        <Rect x={PAD.l} y={PAD.t} width={innerW} height={innerH} fill="#FFF" stroke={C.line} />
-        {Array.from({ length: yTicks + 1 }).map((_, i) => {
-          const y = PAD.t + (innerH * i) / yTicks;
-          const val = iMax * (1 - i / yTicks);
-          return (
-            <View key={`y${i}`}>
-              <Line x1={PAD.l} y1={y} x2={PAD.l + innerW} y2={y} stroke={C.line} strokeWidth={0.5} />
-              <Text style={{ position: "absolute", left: 4, top: y - 5, fontSize: 7, color: C.mute }}>{val.toFixed(1)}</Text>
-            </View>
-          );
-        })}
-        {Array.from({ length: xTicks + 1 }).map((_, i) => {
-          const x = PAD.l + (innerW * i) / xTicks;
-          const val = (tMax * i) / xTicks;
-          return (
-            <View key={`x${i}`}>
-              <Line x1={x} y1={PAD.t} x2={x} y2={PAD.t + innerH} stroke={C.line} strokeWidth={0.5} />
-              <Text style={{ position: "absolute", left: x - 14, top: PAD.t + innerH + 4, fontSize: 7, color: C.mute }}>
-                {val < 1000 ? `${val.toFixed(0)}ms` : `${(val / 1000).toFixed(2)}s`}
-              </Text>
-            </View>
-          );
-        })}
-        <Path d={pathV} stroke={C.voltage} strokeWidth={0.8} strokeDasharray="3,2" fill="none" />
-        <Path d={pathI} stroke={C.current} strokeWidth={1.4} fill="none" />
-      </Svg>
+      <View style={{ flexDirection: "row" }}>
+        {/* Y axis labels column */}
+        <View style={{ width: PAD.l - 4, paddingTop: PAD.t, height: CHART_H - PAD.b - PAD.t + PAD.t, justifyContent: "space-between" }}>
+          {yTickVals.map((v, i) => (
+            <Text key={i} style={{ fontSize: 7, color: C.mute, textAlign: "right" }}>{v.toFixed(1)}</Text>
+          ))}
+        </View>
+        {/* Chart SVG */}
+        <Svg width={CHART_W - PAD.l + 4} height={CHART_H - PAD.b} style={{ borderWidth: 1, borderColor: C.line, borderRadius: 2, backgroundColor: "#FFF" }}>
+          {yTickVals.map((_, i) => {
+            const y = PAD.t + (innerH * i) / yTicks - PAD.t;
+            return <Line key={`y${i}`} x1={0} y1={y + PAD.t} x2={innerW + PAD.r} y2={y + PAD.t} stroke={C.line} strokeWidth={0.4} />;
+          })}
+          {xTickVals.map((_, i) => {
+            const x = (innerW * i) / xTicks;
+            return <Line key={`x${i}`} x1={x} y1={PAD.t} x2={x} y2={PAD.t + innerH} stroke={C.line} strokeWidth={0.4} />;
+          })}
+          <Path d={shift(pathV, -PAD.l)} stroke={C.voltage} strokeWidth={0.8} strokeDasharray="3,2" fill="none" />
+          <Path d={shift(pathI, -PAD.l)} stroke={C.current} strokeWidth={1.5} fill="none" />
+        </Svg>
+      </View>
+      {/* X axis labels */}
+      <View style={{ flexDirection: "row", marginLeft: PAD.l - 4, marginTop: 2, justifyContent: "space-between", width: innerW + PAD.r }}>
+        {xTickVals.map((v, i) => (
+          <Text key={i} style={{ fontSize: 7, color: C.mute }}>
+            {v < 1000 ? `${v.toFixed(0)} ms` : `${(v / 1000).toFixed(2)} s`}
+          </Text>
+        ))}
+      </View>
       <View style={[s.row, { marginTop: 6, gap: 14 }]}>
         <Legend color={C.current} label="Current (A)" />
         <Legend color={C.voltage} label="Voltage (V) — dashed" />
@@ -286,6 +291,12 @@ function ChartSvg({ points }: { points: RawPoint[] }) {
     </View>
   );
 }
+
+/** Shift all X coordinates in an SVG path string by `dx`. */
+function shift(d: string, dx: number): string {
+  return d.replace(/([ML])([\d.\-]+),([\d.\-]+)/g, (_, cmd, x, y) => `${cmd}${(parseFloat(x) + dx).toFixed(1)},${y}`);
+}
+
 
 function Legend({ color, label }: { color: string; label: string }) {
   return (

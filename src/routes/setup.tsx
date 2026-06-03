@@ -20,6 +20,9 @@ const EMPTY = {
   serialNumber: "",
   name: "",
   manufacturer: "",
+  projectName: "",
+  customerName: "",
+  workOrder: "",
   ratedVoltage: 230,
   maxVoltage: 250,
   ratedCurrent: 50,
@@ -47,6 +50,9 @@ function SetupPage() {
       serialNumber: form.serialNumber.trim(),
       name: form.name.trim(),
       manufacturer: form.manufacturer.trim() || undefined,
+      projectName: form.projectName.trim(),
+      customerName: form.customerName.trim(),
+      workOrder: form.workOrder.trim(),
       ratedVoltage: Number(form.ratedVoltage),
       maxVoltage: Number(form.maxVoltage),
       ratedCurrent: Number(form.ratedCurrent),
@@ -64,7 +70,6 @@ function SetupPage() {
         <BrandHeader theme={theme} onToggleTheme={toggle} />
 
         <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-          {/* Form */}
           <form onSubmit={submit} className="panel space-y-4 p-6">
             <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.2em]">
               <Plus className="h-4 w-4 text-amber-500" />
@@ -74,6 +79,9 @@ function SetupPage() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Serial Number *" value={form.serialNumber} onChange={(v) => update("serialNumber", v)} placeholder="RX-001" />
               <Field label="Name *"          value={form.name}         onChange={(v) => update("name", v)} placeholder="Reactor Unit A" />
+              <Field label="Project Name"    value={form.projectName}  onChange={(v) => update("projectName", v)} placeholder="Substation Upgrade" />
+              <Field label="Customer Name"   value={form.customerName} onChange={(v) => update("customerName", v)} placeholder="Acme Power Co." />
+              <Field label="Work Order"      value={form.workOrder}    onChange={(v) => update("workOrder", v)} placeholder="WO-2026-0421" />
               <Field label="Manufacturer"    value={form.manufacturer} onChange={(v) => update("manufacturer", v)} placeholder="Optional" />
               <Field label="Frequency (Hz)"  type="number" value={form.frequency}    onChange={(v) => update("frequency", Number(v))} />
               <Field label="Rated Voltage (V)" type="number" value={form.ratedVoltage} onChange={(v) => update("ratedVoltage", Number(v))} />
@@ -94,15 +102,11 @@ function SetupPage() {
               />
             </label>
 
-            <button
-              type="submit"
-              className="w-full rounded-md bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-background hover:brightness-110"
-            >
+            <button type="submit" className="w-full rounded-md bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-background hover:brightness-110">
               Create Object
             </button>
           </form>
 
-          {/* List */}
           <div className="panel p-6">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.2em]">
@@ -130,7 +134,8 @@ function SetupPage() {
                     </div>
                     <div className="mt-1 font-mono text-[11px] text-muted-foreground">
                       {o.peakCurrent} A peak · {o.maxVoltage} V max
-                      {o.manufacturer ? ` · ${o.manufacturer}` : ""}
+                      {o.workOrder ? ` · WO ${o.workOrder}` : ""}
+                      {o.customerName ? ` · ${o.customerName}` : ""}
                     </div>
                   </div>
                   <button
@@ -152,10 +157,7 @@ function SetupPage() {
 
 function Field({
   label, value, onChange, type = "text", placeholder,
-}: {
-  label: string; value: string | number; onChange: (v: string) => void;
-  type?: string; placeholder?: string;
-}) {
+}: { label: string; value: string | number; onChange: (v: string) => void; type?: string; placeholder?: string }) {
   return (
     <label className="block">
       <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">{label}</span>

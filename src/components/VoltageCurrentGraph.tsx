@@ -3,52 +3,61 @@ import {
   Area, ComposedChart, CartesianGrid, Legend, ResponsiveContainer,
   Tooltip, XAxis, YAxis, ReferenceLine, Line,
 } from "recharts";
-import type { CurrentUnit, ReactorSample, TimeUnit } from "@/types/sample";
-import {
-  convertCurrentUnit, convertTimeUnit, currentUnitLabel, timeUnitLabel,
-} from "@/utils/unitConversion";
+import type { CurrentUnit, RawPoint, TimeUnit } from "@/types/sample";
+import { convertCurrentUnit, currentUnitLabel, timeUnitLabel } from "@/utils/unitConversion";
 
 interface Props {
-  samples: ReactorSample[];
+  points: RawPoint[];
   timeUnit: TimeUnit;
   currentUnit: CurrentUnit;
   peakCurrent: number;
   showCurrent?: boolean;
   showVoltage?: boolean;
+  /** Label shown on the dataset badge (e.g. "RAW 0.25 ms" or "ANALYSIS 1 ms"). */
+  datasetLabel?: string;
 }
 
-/**
- * X-axis ticks:
- *  - duration ≤ 5 (display units): 0.5 step  → 0, 0.5, 1.0, ...
- *  - duration  > 5: 1.0 step                 → 0, 1, 2, ...
- * Adapts automatically to MS (×1000).
- */
+/** Stride downsample so the chart never tries to render >MAX_PLOT points. */
+function downsample<T>(arr: T[], max: number): T[] {
+  if (arr.length <= max) return arr;
+  const step = Math.ceil(arr.length / max);
+  const out: T[] = [];
+  for (let i = 0; i < arr.length; i += step) out.push(arr[i]);
+  if (out[out.length - 1] !== arr[arr.length - 1]) out.push(arr[arr.length - 1]);
+  return out;
+}
+const MAX_PLOT = 600;
+
 function buildTicks(maxTime: number, unit: TimeUnit): number[] {
   if (!isFinite(maxTime) || maxTime <= 0) return [0];
   const fiveInUnit = unit === "MS" ? 5000 : 5;
   const stepFine   = unit === "MS" ? 500  : 0.5;
   const stepCoarse = unit === "MS" ? 1000 : 1;
   const step = maxTime <= fiveInUnit ? stepFine : stepCoarse;
-
   const end = Math.ceil(maxTime / step) * step;
   const out: number[] = [];
-  for (let t = 0; t <= end + 1e-9; t += step) {
-    out.push(+t.toFixed(unit === "MS" ? 0 : 2));
-  }
+  for (let t = 0; t <= end + 1e-9; t += step) out.push(+t.toFixed(unit === "MS" ? 0 : 2));
   return out;
 }
 
-export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurrent, showCurrent = true, showVoltage = true }: Props) {
+export function VoltageCurrentGraph({
+  points, timeUnit, currentUnit, peakCurrent,
+  showCurrent = true, showVoltage = true, datasetLabel,
+}: Props) {
   const { data, ticks, maxT } = useMemo(() => {
-    const d = samples.map((s) => ({
-      time:    +convertTimeUnit(s.time, timeUnit).toFixed(timeUnit === "MS" ? 0 : 3),
-      current: +convertCurrentUnit(s.current, currentUnit).toFixed(currentUnit === "mA" ? 0 : 3),
-      voltage: s.voltage ?? null,
-      phase:   s.phase,
-    }));
+    const slim = downsample(points, MAX_PLOT);
+    const d = slim.map((p) => {
+      const tSec = p.timestamp / 1000;
+      return {
+        time: +(timeUnit === "MS" ? p.timestamp : tSec).toFixed(timeUnit === "MS" ? 1 : 4),
+        current: +convertCurrentUnit(p.current, currentUnit).toFixed(currentUnit === "mA" ? 1 : 3),
+        voltage: +p.voltage.toFixed(2),
+        phase: p.phase,
+      };
+    });
     const m = d.length ? d[d.length - 1].time : 0;
     return { data: d, ticks: buildTicks(m, timeUnit), maxT: m };
-  }, [samples, timeUnit, currentUnit]);
+  }, [points, timeUnit, currentUnit]);
 
   const tLabel = timeUnitLabel(timeUnit);
   const iLabel = currentUnitLabel(currentUnit);
@@ -56,6 +65,11 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
 
   return (
     <div className="h-[460px] w-full">
+      {datasetLabel && (
+        <div className="mb-2 inline-block rounded-sm border border-border bg-card/60 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">
+          {datasetLabel}
+        </div>
+      )}
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 20, right: 32, left: 12, bottom: 24 }}>
           <defs>
@@ -74,14 +88,10 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
             ticks={ticks}
             stroke="var(--muted-foreground)"
             tick={{ fill: "var(--muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
-            tickFormatter={(v) => (timeUnit === "MS" ? `${v}` : v.toFixed(1))}
+            tickFormatter={(v) => (timeUnit === "MS" ? `${v}` : Number(v).toFixed(1))}
             label={{
-              value: `Time (${tLabel})`,
-              position: "insideBottom",
-              offset: -10,
-              fill: "var(--foreground)",
-              fontSize: 12,
-              fontWeight: 700,
+              value: `Time (${tLabel})`, position: "insideBottom", offset: -10,
+              fill: "var(--foreground)", fontSize: 12, fontWeight: 700,
               fontFamily: "var(--font-display)",
             }}
           />
@@ -90,13 +100,8 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
             stroke="var(--current)"
             tick={{ fill: "var(--current)", fontSize: 11, fontFamily: "var(--font-mono)" }}
             label={{
-              value: `Current (${iLabel})`,
-              angle: -90,
-              position: "insideLeft",
-              fill: "var(--current)",
-              fontSize: 12,
-              fontWeight: 700,
-              fontFamily: "var(--font-display)",
+              value: `Current (${iLabel})`, angle: -90, position: "insideLeft",
+              fill: "var(--current)", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)",
             }}
             domain={[0, "auto"]}
           />
@@ -106,29 +111,18 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
             stroke="var(--voltage)"
             tick={{ fill: "var(--voltage)", fontSize: 11, fontFamily: "var(--font-mono)" }}
             label={{
-              value: "Voltage (V)",
-              angle: 90,
-              position: "insideRight",
-              fill: "var(--voltage)",
-              fontSize: 12,
-              fontWeight: 700,
-              fontFamily: "var(--font-display)",
+              value: "Voltage (V)", angle: 90, position: "insideRight",
+              fill: "var(--voltage)", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)",
             }}
             domain={["auto", "auto"]}
           />
 
           {peakDisplay > 0 && (
             <ReferenceLine
-              yAxisId="left"
-              y={peakDisplay}
-              stroke="var(--peak)"
-              strokeDasharray="4 4"
+              yAxisId="left" y={peakDisplay} stroke="var(--peak)" strokeDasharray="4 4"
               label={{
-                value: `Peak ${peakDisplay} ${iLabel}`,
-                fill: "var(--peak)",
-                fontSize: 11,
-                fontFamily: "var(--font-mono)",
-                position: "insideTopRight",
+                value: `Peak ${peakDisplay} ${iLabel}`, fill: "var(--peak)",
+                fontSize: 11, fontFamily: "var(--font-mono)", position: "insideTopRight",
               }}
             />
           )}
@@ -136,18 +130,15 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
           <Tooltip
             contentStyle={{
               background: "color-mix(in oklab, var(--popover) 96%, transparent)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              fontSize: 12,
-              fontFamily: "var(--font-mono)",
-              color: "var(--popover-foreground)",
+              border: "1px solid var(--border)", borderRadius: 6, fontSize: 12,
+              fontFamily: "var(--font-mono)", color: "var(--popover-foreground)",
               boxShadow: "0 10px 30px -10px rgba(0,0,0,0.5)",
             }}
             labelStyle={{ color: "var(--foreground)", fontWeight: 700 }}
             labelFormatter={(v) => `t = ${timeUnit === "MS" ? v : Number(v).toFixed(3)} ${tLabel}`}
             formatter={((value: unknown, name: unknown) => {
               const n = String(name).toLowerCase();
-              const unit = n.includes("voltage") ? "V" : iLabel;
+              const unit = n.includes("voltage") ? "V" : n.includes("phase") ? "rad" : iLabel;
               return [`${value} ${unit}`, name];
             }) as never}
           />
@@ -158,37 +149,25 @@ export function VoltageCurrentGraph({ samples, timeUnit, currentUnit, peakCurren
 
           {showCurrent && (
             <Area
-              yAxisId="left"
-              type="monotone"
-              dataKey="current"
+              yAxisId="left" type="monotone" dataKey="current"
               name={`Current (${iLabel})`}
-              stroke="var(--current)"
-              strokeWidth={2.4}
-              fill="url(#currentFill)"
-              isAnimationActive={false}
-              dot={false}
+              stroke="var(--current)" strokeWidth={2.4} fill="url(#currentFill)"
+              isAnimationActive={false} dot={false}
               activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--background)" }}
             />
           )}
           {showVoltage && (
             <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="voltage"
-              name="Voltage (V)"
-              stroke="var(--voltage)"
-              strokeWidth={1.4}
-              strokeDasharray="3 3"
-              dot={false}
-              isAnimationActive={false}
-              connectNulls
+              yAxisId="right" type="monotone" dataKey="voltage"
+              name="Voltage (V)" stroke="var(--voltage)" strokeWidth={1.4}
+              strokeDasharray="3 3" dot={false} isAnimationActive={false} connectNulls
             />
           )}
         </ComposedChart>
       </ResponsiveContainer>
       <div className="mt-1 flex items-center justify-between px-2 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-        <span>Window: 0 → {timeUnit === "MS" ? maxT : maxT.toFixed(2)} {tLabel}</span>
-        <span>Tick: {timeUnit === "MS" ? (maxT <= 5000 ? "500 ms" : "1000 ms") : (maxT <= 5 ? "0.5 s" : "1.0 s")}</span>
+        <span>Window: 0 → {timeUnit === "MS" ? maxT : Number(maxT).toFixed(2)} {tLabel}</span>
+        <span>Points plotted: {data.length} / {points.length}</span>
       </div>
     </div>
   );

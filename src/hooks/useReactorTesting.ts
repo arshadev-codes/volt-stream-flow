@@ -1,39 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactorSample, ReactorPhase } from "@/types/sample";
-import { createReactorSource, type ReactorSource } from "@/services/reactorSimulation";
+import type { RawPoint } from "@/types/sample";
+import { createReactorSource, type ReactorSource, type ReactorPhaseRuntime } from "@/services/reactorSimulation";
+import { analyzeRaw } from "@/services/analysis";
 
-const MAX_SAMPLES = 200;
-
-interface Options {
-  source?: ReactorSource;
-  maxSamples?: number;
-}
+export type Phase = "idle" | ReactorPhaseRuntime;
 
 /**
- * Owns the reactor test lifecycle. UI components stay dumb — they read state
- * and call the returned actions.
+ * Owns the reactor test lifecycle: streams RawPoint batches in real time,
+ * tracks duration / peak, and computes the median-of-4 analysis dataset
+ * the moment the test completes.
  */
-export function useReactorTesting(options: Options = {}) {
-  const { maxSamples = MAX_SAMPLES } = options;
-  const [samples, setSamples] = useState<ReactorSample[]>([]);
-  const [phase, setPhase] = useState<ReactorPhase>("idle");
+export function useReactorTesting() {
+  const [raw, setRaw] = useState<RawPoint[]>([]);
+  const [analysis, setAnalysis] = useState<RawPoint[]>([]);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [duration, setDuration] = useState(0);
   const [peakCurrent, setPeakCurrent] = useState(0);
 
+  const sourceRef = useRef<ReactorSource | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
-  const sourceRef = useRef<ReactorSource | null>(options.source ?? null);
+  const rawRef = useRef<RawPoint[]>([]);
 
-  const stop = useCallback(() => {
-    // Soft-stop: trigger early decay rather than killing the stream.
-    sourceRef.current?.triggerDecay();
-  }, []);
+  const stop = useCallback(() => { sourceRef.current?.triggerDecay(); }, []);
 
   const reset = useCallback(() => {
     unsubRef.current?.();
     unsubRef.current = null;
     sourceRef.current = null;
-    setSamples([]);
+    rawRef.current = [];
+    setRaw([]);
+    setAnalysis([]);
     setDuration(0);
     setStartedAt(null);
     setPeakCurrent(0);
@@ -42,46 +39,54 @@ export function useReactorTesting(options: Options = {}) {
 
   const start = useCallback(() => {
     if (unsubRef.current) return;
-    setSamples([]);
+    rawRef.current = [];
+    setRaw([]);
+    setAnalysis([]);
     setPeakCurrent(0);
     setDuration(0);
     setStartedAt(Date.now());
     setPhase("ramp_up");
 
-    const src = options.source ?? createReactorSource();
+    const src = createReactorSource();
     sourceRef.current = src;
 
     unsubRef.current = src.subscribe((e) => {
-      setPhase(e.phase);
-      if (!e.sample) return;
-      setSamples((prev) => {
-        const next = [...prev, e.sample!];
-        return next.length > maxSamples ? next.slice(next.length - maxSamples) : next;
-      });
-      setPeakCurrent((p) => Math.max(p, e.sample!.current));
+      if (e.batch.length) {
+        rawRef.current = rawRef.current.concat(e.batch);
+        let p = 0;
+        for (const pt of e.batch) if (pt.current > p) p = pt.current;
+        setPeakCurrent((prev) => (p > prev ? p : prev));
+        // Throttle React updates by mutating ref & swapping reference.
+        setRaw(rawRef.current);
+      }
+      if (e.phase === "completed") {
+        setPhase("completed");
+        setAnalysis(analyzeRaw(rawRef.current));
+      } else {
+        setPhase(e.phase);
+      }
     });
-  }, [maxSamples, options.source]);
+  }, []);
 
   useEffect(() => {
     if (!startedAt || phase === "idle" || phase === "completed") return;
-    const id = setInterval(() => setDuration((Date.now() - startedAt) / 1000), 250);
+    const id = setInterval(() => setDuration((Date.now() - startedAt) / 1000), 200);
     return () => clearInterval(id);
   }, [startedAt, phase]);
 
   useEffect(() => () => unsubRef.current?.(), []);
 
-  const latest = samples[samples.length - 1];
+  const latest = raw[raw.length - 1];
 
   return {
-    samples,
+    raw,
+    analysis,
     phase,
     duration,
     latestCurrent: latest?.current ?? 0,
     latestVoltage: latest?.voltage ?? 0,
     peakCurrent,
-    totalSamples: samples.length,
-    start,
-    stop,
-    reset,
+    totalSamples: raw.length,
+    start, stop, reset,
   };
 }

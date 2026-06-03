@@ -1,4 +1,4 @@
-import type { ReactorSample } from "./sample";
+import type { RawPoint } from "./sample";
 
 export const TestStatus = {
   Pending: "pending",
@@ -12,13 +12,20 @@ export interface TestObject {
   serialNumber: string;
   name: string;
   manufacturer?: string;
-  ratedVoltage: number;      // V
-  maxVoltage: number;        // V
-  ratedCurrent: number;      // A
-  peakCurrent: number;       // A
-  frequency?: number;        // Hz
-  inductance?: number;       // mH
+
+  /** Job context */
+  projectName: string;
+  customerName: string;
+  workOrder: string;
+
+  ratedVoltage: number;
+  maxVoltage: number;
+  ratedCurrent: number;
+  peakCurrent: number;
+  frequency?: number;
+  inductance?: number;
   notes?: string;
+
   createdAt: number;
   status: TestStatus;
 }
@@ -26,7 +33,10 @@ export interface TestObject {
 export interface TestReport {
   objectId: string;
   status: Exclude<TestStatus, "pending">;
-  samples: ReactorSample[];
+  /** Serialized JSON array as captured by the acquisition loop (0.25 ms cadence). */
+  rawResult: RawPoint[];
+  /** Median-of-4 downsampled dataset (1 ms cadence) computed after completion. */
+  analysisResult: RawPoint[];
   peakCurrent: number;
   durationS: number;
   completedAt: number;

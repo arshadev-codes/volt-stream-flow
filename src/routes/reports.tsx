@@ -26,12 +26,13 @@ function ReportsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
 
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
     return objects.filter((o) => {
       if (filter !== "all" && o.status !== filter) return false;
-      if (s && !`${o.serialNumber} ${o.name}`.toLowerCase().includes(s)) return false;
+      if (s && !`${o.serialNumber} ${o.name} ${o.workOrder} ${o.customerName}`.toLowerCase().includes(s)) return false;
       return true;
     });
   }, [objects, filter, q]);
@@ -45,11 +46,9 @@ function ReportsPage() {
         <BrandHeader theme={theme} onToggleTheme={toggle} />
 
         <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-          {/* Sidebar list */}
           <div className="panel flex flex-col p-4">
             <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.2em]">
-              <FileText className="h-4 w-4 text-amber-500" />
-              Reports
+              <FileText className="h-4 w-4 text-amber-500" /> Reports
             </div>
 
             <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2">
@@ -57,7 +56,7 @@ function ReportsPage() {
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search by serial or name"
+                placeholder="Search serial, name, WO, customer"
                 className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
             </div>
@@ -87,7 +86,7 @@ function ReportsPage() {
               {list.map((o) => (
                 <button
                   key={o.id}
-                  onClick={() => setSelectedId(o.id)}
+                  onClick={() => { setSelectedId(o.id); setShowRaw(false); }}
                   className={`flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition ${
                     selectedId === o.id
                       ? "border-amber-500/60 bg-amber-500/10"
@@ -108,14 +107,18 @@ function ReportsPage() {
             </div>
           </div>
 
-          {/* Detail */}
           <div className="panel p-6">
             {!selected ? (
               <Empty />
             ) : selected.status === "pending" || !report ? (
               <Pending object={selected} />
             ) : (
-              <ReportDetail object={selected} report={report} />
+              <ReportDetail
+                object={selected}
+                report={report}
+                showRaw={showRaw}
+                onToggleRaw={setShowRaw}
+              />
             )}
           </div>
         </div>
@@ -151,33 +154,41 @@ function Pending({ object }: { object: TestObject }) {
   );
 }
 
-function ReportDetail({ object, report }: { object: TestObject; report: TestReport }) {
+function ReportDetail({
+  object, report, showRaw, onToggleRaw,
+}: { object: TestObject; report: TestReport; showRaw: boolean; onToggleRaw: (v: boolean) => void }) {
+  const points = showRaw ? report.rawResult : (report.analysisResult?.length ? report.analysisResult : report.rawResult);
+  const datasetLabel = showRaw
+    ? `RAW · 0.25 MS · ${report.rawResult.length} pts`
+    : `ANALYSIS · 1 MS · ${report.analysisResult.length} pts`;
+
+  const doExport = async () => {
+    try { await exportReportPdf(object, report); }
+    catch (e) { console.error(e); alert("PDF export failed: " + (e as Error).message); }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-muted-foreground">
-            Test Object
-          </div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-muted-foreground">Test Object</div>
           <h2 className="font-display text-xl font-bold tracking-wide text-foreground">
             {object.serialNumber} · {object.name}
           </h2>
           <div className="mt-1 font-mono text-[11px] text-muted-foreground">
             {new Date(report.completedAt).toLocaleString()}
+            {object.workOrder ? ` · WO ${object.workOrder}` : ""}
+            {object.customerName ? ` · ${object.customerName}` : ""}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span
-            className={`rounded-md border px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest ${
-              report.status === "passed"
-                ? "border-[var(--ok)]/60 bg-[var(--ok)]/15 text-[var(--ok)]"
-                : "border-destructive/60 bg-destructive/15 text-destructive"
-            }`}
-          >
-            {report.status}
-          </span>
+          <span className={`rounded-md border px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest ${
+            report.status === "passed"
+              ? "border-[var(--ok)]/60 bg-[var(--ok)]/15 text-[var(--ok)]"
+              : "border-destructive/60 bg-destructive/15 text-destructive"
+          }`}>{report.status}</span>
           <button
-            onClick={() => exportReportPdf(object, report)}
+            onClick={doExport}
             className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-background hover:brightness-110"
           >
             <Download className="h-3.5 w-3.5" /> Export PDF
@@ -188,25 +199,41 @@ function ReportDetail({ object, report }: { object: TestObject; report: TestRepo
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Mini label="Peak" value={`${report.peakCurrent.toFixed(2)} A`} />
         <Mini label="Duration" value={`${report.durationS.toFixed(2)} s`} />
-        <Mini label="Samples" value={String(report.samples.length)} />
-        <Mini label="Max Voltage" value={`${object.maxVoltage} V`} />
+        <Mini label="Raw Samples" value={String(report.rawResult.length)} />
+        <Mini label="Analysis Pts" value={String(report.analysisResult.length)} />
       </div>
 
       <div className="rounded-md border border-border bg-card p-4">
-        <div className="mb-3 font-display text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
-          Recorded Linearity Curve
+        <div className="mb-3 flex items-center justify-between">
+          <div className="font-display text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
+            Recorded Linearity Curve
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground hover:bg-accent">
+            <input
+              type="checkbox"
+              checked={showRaw}
+              onChange={(e) => onToggleRaw(e.target.checked)}
+              className="h-3.5 w-3.5"
+              style={{ accentColor: "var(--peak)" }}
+            />
+            Show Raw Data
+          </label>
         </div>
         <VoltageCurrentGraph
-          samples={report.samples}
-          timeUnit="S"
+          points={points}
+          timeUnit="MS"
           currentUnit="A"
           peakCurrent={report.peakCurrent}
+          datasetLabel={datasetLabel}
         />
       </div>
 
-      <details className="rounded-md border border-border bg-card p-4 text-sm">
-        <summary className="cursor-pointer font-semibold text-foreground">Object specifications</summary>
+      <details className="rounded-md border border-border bg-card p-4 text-sm" open>
+        <summary className="cursor-pointer font-semibold text-foreground">Job & object details</summary>
         <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[12px] text-muted-foreground">
+          <div>Project: <span className="text-foreground">{object.projectName || "—"}</span></div>
+          <div>Customer: <span className="text-foreground">{object.customerName || "—"}</span></div>
+          <div>Work Order: <span className="text-foreground">{object.workOrder || "—"}</span></div>
           <div>Manufacturer: <span className="text-foreground">{object.manufacturer || "—"}</span></div>
           <div>Frequency: <span className="text-foreground">{object.frequency ?? "—"} Hz</span></div>
           <div>Rated V: <span className="text-foreground">{object.ratedVoltage} V</span></div>

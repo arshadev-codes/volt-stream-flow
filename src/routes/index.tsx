@@ -10,6 +10,7 @@ import { TestObjectSearch } from "@/components/TestObjectSearch";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { GraphModal } from "@/components/GraphModal";
 import { useReactorTesting } from "@/hooks/useReactorTesting";
+import { motion } from "framer-motion";
 import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
 import type { CurrentUnit, TimeUnit } from "@/types/sample";
@@ -30,7 +31,6 @@ function Dashboard() {
   const [currentUnit, setCurrentUnit] = useState<CurrentUnit>("A");
   const [showCurrent, setShowCurrent] = useState(true);
   const [showVoltage, setShowVoltage] = useState(true);
-  const [showRaw, setShowRaw] = useState(false); // post-test: default = analysis
   const [expand, setExpand] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const [pendingPassFail, setPendingPassFail] = useState(false);

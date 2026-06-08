@@ -9,6 +9,7 @@
  */
 import type { TestObject, TestReport, TestStatus } from "@/types/testObject";
 import { api, isApiEnabled } from "./api";
+import { getSettings } from "./settings";
 
 const OBJ_KEY = "esa.testObjects.v2";
 const REP_KEY = "esa.testReports.v2";
@@ -34,6 +35,8 @@ function writeLs<T>(key: string, value: T) {
 
 function rowToObject(row: any): TestObject {
   const meta = safeJson(row.analysis_result)?.meta ?? {};
+  const created = row.created_at ? new Date(row.created_at).getTime() : Date.now();
+  const modified = row.modified_at ? new Date(row.modified_at).getTime() : (meta.completedAt ?? created);
   return {
     id: String(row.id),
     serialNumber: row.serial_number,
@@ -49,7 +52,8 @@ function rowToObject(row: any): TestObject {
     frequency: meta.frequency,
     inductance: meta.inductance,
     notes: meta.notes,
-    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    createdAt: created,
+    modifiedAt: modified,
     status: (meta.status as TestStatus) ?? "pending",
   };
 }

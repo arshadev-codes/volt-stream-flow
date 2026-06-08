@@ -13,7 +13,7 @@
 
 @theme inline {
   --font-sans: "Montserrat", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: "Montserrat", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --font-display: "Montserrat", system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);

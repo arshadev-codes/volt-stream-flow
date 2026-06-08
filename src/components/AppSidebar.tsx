@@ -1,12 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Boxes, FileText, Menu, X } from "lucide-react";
+import { Activity, Boxes, FileText, Menu, Settings, X } from "lucide-react";
 import { useState } from "react";
 import logo from "@/assets/electrosoft-logo.png";
 
 const NAV = [
-  { to: "/",        label: "Testing",          icon: Activity, description: "Live reactor test" },
-  { to: "/setup",   label: "Test Objects",     icon: Boxes,    description: "Create & manage units" },
-  { to: "/reports", label: "Reports",          icon: FileText, description: "Results & export" },
+  { to: "/",         label: "Testing",      icon: Activity, description: "Live reactor test" },
+  { to: "/setup",    label: "Test Objects", icon: Boxes,    description: "Create & manage units" },
+  { to: "/reports",  label: "Reports",      icon: FileText, description: "Results & export" },
+  { to: "/settings", label: "Settings",     icon: Settings, description: "Preferences & data" },
 ] as const;
 
 export function AppSidebar() {

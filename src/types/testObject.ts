@@ -27,6 +27,8 @@ export interface TestObject {
   notes?: string;
 
   createdAt: number;
+  /** Updated whenever a test is conducted (= report.completedAt). Defaults to createdAt. */
+  modifiedAt: number;
   status: TestStatus;
 }
 

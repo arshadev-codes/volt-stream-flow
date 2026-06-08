@@ -9,6 +9,7 @@
  */
 import type { TestObject, TestReport, TestStatus } from "@/types/testObject";
 import { api, isApiEnabled } from "./api";
+import { getSettings } from "./settings";
 
 const OBJ_KEY = "esa.testObjects.v2";
 const REP_KEY = "esa.testReports.v2";
@@ -34,6 +35,8 @@ function writeLs<T>(key: string, value: T) {
 
 function rowToObject(row: any): TestObject {
   const meta = safeJson(row.analysis_result)?.meta ?? {};
+  const created = row.created_at ? new Date(row.created_at).getTime() : Date.now();
+  const modified = row.modified_at ? new Date(row.modified_at).getTime() : (meta.completedAt ?? created);
   return {
     id: String(row.id),
     serialNumber: row.serial_number,
@@ -49,7 +52,8 @@ function rowToObject(row: any): TestObject {
     frequency: meta.frequency,
     inductance: meta.inductance,
     notes: meta.notes,
-    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    createdAt: created,
+    modifiedAt: modified,
     status: (meta.status as TestStatus) ?? "pending",
   };
 }
@@ -74,11 +78,13 @@ export function getObject(id: string): TestObject | undefined {
   return listObjects().find((o) => o.id === id);
 }
 
-export function createObject(input: Omit<TestObject, "id" | "createdAt" | "status">): TestObject {
+export function createObject(input: Omit<TestObject, "id" | "createdAt" | "modifiedAt" | "status">): TestObject {
+  const now = Date.now();
   const obj: TestObject = {
     ...input,
     id: crypto.randomUUID(),
-    createdAt: Date.now(),
+    createdAt: now,
+    modifiedAt: now,
     status: "pending",
   };
   const all = [obj, ...listObjects()];
@@ -96,7 +102,6 @@ export function createObject(input: Omit<TestObject, "id" | "createdAt" | "statu
       work_order: obj.workOrder,
       analysis_result: JSON.stringify({ meta: stripMeta(obj) }),
     }).then((row) => {
-      // Adopt server id for future updates.
       const updated = listObjects().map((o) => (o.id === obj.id ? { ...o, id: String(row.id) } : o));
       objCache = updated;
       writeLs(OBJ_KEY, updated);
@@ -113,8 +118,10 @@ function stripMeta(o: TestObject) {
   };
 }
 
-export function updateObjectStatus(id: string, status: TestStatus) {
-  const all = listObjects().map((o) => (o.id === id ? { ...o, status } : o));
+export function updateObjectStatus(id: string, status: TestStatus, modifiedAt?: number) {
+  const all = listObjects().map((o) =>
+    o.id === id ? { ...o, status, modifiedAt: modifiedAt ?? o.modifiedAt } : o,
+  );
   objCache = all;
   writeLs(OBJ_KEY, all);
   emit();
@@ -140,23 +147,56 @@ export function getReport(objectId: string): TestReport | undefined {
 }
 
 export function saveReport(report: TestReport) {
-  const others = listReports().filter((r) => r.objectId !== report.objectId);
-  repCache = [report, ...others];
+  const storeRaw = getSettings().storeRawData;
+  const persisted: TestReport = storeRaw ? report : { ...report, rawResult: [] };
+
+  const others = listReports().filter((r) => r.objectId !== persisted.objectId);
+  repCache = [persisted, ...others];
   writeLs(REP_KEY, repCache);
-  updateObjectStatus(report.objectId, report.status);
+  updateObjectStatus(persisted.objectId, persisted.status, persisted.completedAt);
   emit();
 
   if (isApiEnabled()) {
-    const obj = getObject(report.objectId);
-    api.saveResults(report.objectId, {
-      raw_result: JSON.stringify(report.rawResult),
+    const obj = getObject(persisted.objectId);
+    api.saveResults(persisted.objectId, {
+      raw_result: storeRaw ? JSON.stringify(report.rawResult) : "[]",
       analysis_result: JSON.stringify({
-        points: report.analysisResult,
-        meta: { ...(obj ? stripMeta(obj) : {}), status: report.status,
-                peakCurrent: report.peakCurrent, durationS: report.durationS,
-                completedAt: report.completedAt },
+        points: persisted.analysisResult,
+        meta: { ...(obj ? stripMeta(obj) : {}), status: persisted.status,
+                peakCurrent: persisted.peakCurrent, durationS: persisted.durationS,
+                completedAt: persisted.completedAt },
       }),
     }).catch(console.error);
+  }
+}
+
+/** Lazily fetch a single report's full payload (called when a report is opened). */
+export async function fetchReport(objectId: string): Promise<TestReport | undefined> {
+  const local = getReport(objectId);
+  if (!isApiEnabled()) return local;
+  try {
+    const row: any = await api.getObject(objectId);
+    if (!row) return local;
+    const analysis = safeJson(row.analysis_result);
+    const raw = safeJson(row.raw_result) ?? [];
+    const meta = analysis?.meta ?? {};
+    const merged: TestReport = {
+      objectId,
+      status: (meta.status ?? local?.status ?? "passed") as Exclude<TestStatus, "pending">,
+      rawResult: Array.isArray(raw) ? raw : [],
+      analysisResult: Array.isArray(analysis?.points) ? analysis.points : (local?.analysisResult ?? []),
+      peakCurrent: Number(meta.peakCurrent ?? local?.peakCurrent ?? 0),
+      durationS: Number(meta.durationS ?? local?.durationS ?? 0),
+      completedAt: Number(meta.completedAt ?? local?.completedAt ?? Date.now()),
+    };
+    const others = listReports().filter((r) => r.objectId !== objectId);
+    repCache = [merged, ...others];
+    writeLs(REP_KEY, repCache);
+    emit();
+    return merged;
+  } catch (e) {
+    console.error(e);
+    return local;
   }
 }
 

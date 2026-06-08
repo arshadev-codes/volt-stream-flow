@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   listObjects, listReports, subscribe,
-  createObject, deleteObject, saveReport, getReport, getObject, updateObjectStatus,
+  createObject, deleteObject, saveReport, getReport, getObject, updateObjectStatus, fetchReport,
 } from "@/services/testObjectStore";
 import type { TestObject, TestReport } from "@/types/testObject";
 
@@ -25,6 +25,7 @@ export function useTestObjects() {
     remove: deleteObject,
     saveReport,
     getReport,
+    fetchReport,
     getObject,
     updateStatus: updateObjectStatus,
   };

@@ -141,7 +141,12 @@ function Dashboard() {
             onCurrentUnitChange={setCurrentUnit}
           />
 
-          <div className="panel p-5">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="panel p-5"
+          >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.2em] text-foreground">
                 <Gauge className="h-4 w-4 text-[var(--current)]" />
@@ -150,14 +155,6 @@ function Dashboard() {
               <div className="flex flex-wrap items-center gap-3">
                 <ChannelToggle label="Current" color="var(--current)" checked={showCurrent} onChange={setShowCurrent} />
                 <ChannelToggle label="Voltage" color="var(--voltage)" checked={showVoltage} onChange={setShowVoltage} />
-                <ChannelToggle
-                  label="Show Raw Data"
-                  color="var(--peak)"
-                  checked={showRaw}
-                  onChange={setShowRaw}
-                  disabled={isRunning || analysis.length === 0}
-                  title={isRunning ? "Live raw stream is already showing" : analysis.length === 0 ? "Run a test first" : ""}
-                />
                 <button
                   onClick={() => setExpand(true)}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground transition hover:bg-accent"
@@ -167,7 +164,7 @@ function Dashboard() {
               </div>
             </div>
             {graphView}
-          </div>
+          </motion.div>
 
           <div className="pt-1 text-center font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
             © {new Date().getFullYear()} ELECTROSOFT AUTOMATION · RLTS v2.2

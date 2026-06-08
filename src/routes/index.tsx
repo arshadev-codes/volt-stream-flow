@@ -48,15 +48,12 @@ function Dashboard() {
   const selectedObject = selectedId ? getObject(selectedId) : null;
   const hasExistingReport = selectedId ? !!getReport(selectedId) : false;
 
-  // While running, always render from raw (real-time). After completion, default to analysis.
+  // While running render raw stream. After completion default to analysis.
   const isRunning = phase === "ramp_up" || phase === "decay";
-  const usingRaw = isRunning ? true : showRaw;
-  const points = usingRaw ? raw : (analysis.length ? analysis : raw);
+  const points = isRunning ? raw : (analysis.length ? analysis : raw);
   const datasetLabel = isRunning
     ? "RAW · LIVE 0.25 MS"
-    : usingRaw
-      ? `RAW · 0.25 MS · ${raw.length} pts`
-      : `ANALYSIS · 1 MS · ${analysis.length} pts`;
+    : `ANALYSIS · 1 MS · ${analysis.length} pts`;
 
   const fmtCurrent = (v: number) =>
     convertCurrentUnit(v, currentUnit).toFixed(currentUnit === "mA" ? 0 : 2);

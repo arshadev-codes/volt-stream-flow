@@ -63,7 +63,9 @@ const s = StyleSheet.create({
 function ReportDocument({ object, report }: { object: TestObject; report: TestReport }) {
   const generated = new Date().toLocaleString();
   const completed = new Date(report.completedAt).toLocaleString();
+  const created = new Date(object.createdAt).toLocaleString();
   const statusColor = report.status === "passed" ? C.ok : C.fail;
+  const hasRaw = report.rawResult.length > 0;
 
   return (
     <Document title={`Reactor Test Report — ${object.serialNumber}`} author="Electrosoft Automation">
@@ -71,19 +73,27 @@ function ReportDocument({ object, report }: { object: TestObject; report: TestRe
         <Header />
         <Footer generated={generated} object={object} />
 
-        <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start" }]}>
-          <View>
-            <Text style={s.h1}>Reactor Linearity Test Report</Text>
-            <Text style={{ color: C.mute, fontSize: 10 }}>
-              {object.serialNumber} · {object.name}
-            </Text>
-            <Text style={{ color: C.mute, fontSize: 9, marginTop: 2 }}>
-              Completed {completed}
-            </Text>
+        {/* HERO */}
+        <View style={{ borderLeftWidth: 4, borderLeftColor: C.amber, paddingLeft: 12, marginBottom: 14 }}>
+          <Text style={{ fontSize: 8, color: C.mute, fontFamily: "Helvetica-Bold", letterSpacing: 2 }}>
+            REACTOR LINEARITY TEST REPORT
+          </Text>
+          <Text style={s.h1}>{object.serialNumber} · {object.name}</Text>
+          <Text style={{ color: C.mute, fontSize: 9, marginTop: 2 }}>
+            Test conducted {completed} · Object created {created}
+          </Text>
+        </View>
+
+        <View style={[s.row, { justifyContent: "space-between", alignItems: "center", marginBottom: 10 }]}>
+          <View style={[s.row, { gap: 6 }]}>
+            <View style={[s.badge, { backgroundColor: statusColor, color: "#FFF" }]}>
+              <Text>{report.status.toUpperCase()}</Text>
+            </View>
+            <View style={[s.badge, { backgroundColor: C.ink, color: "#FFF" }]}>
+              <Text>{hasRaw ? "RAW + ANALYSIS" : "ANALYSIS ONLY"}</Text>
+            </View>
           </View>
-          <View style={[s.badge, { backgroundColor: statusColor, color: "#FFF" }]}>
-            <Text>{report.status.toUpperCase()}</Text>
-          </View>
+          <Text style={{ fontSize: 8, color: C.mute }}>Report ID · {object.id.slice(0, 8).toUpperCase()}</Text>
         </View>
 
         <Text style={s.h2}>Project & Customer</Text>
@@ -118,7 +128,7 @@ function ReportDocument({ object, report }: { object: TestObject; report: TestRe
         <View style={[s.row, { gap: 8 }]}>
           <Stat label="Peak Current" value={`${report.peakCurrent.toFixed(2)} A`} />
           <Stat label="Duration" value={`${report.durationS.toFixed(2)} s`} />
-          <Stat label="Raw Samples" value={String(report.rawResult.length)} />
+          <Stat label="Raw Samples" value={hasRaw ? String(report.rawResult.length) : "—"} />
           <Stat label="Analysis Pts" value={String(report.analysisResult.length)} />
         </View>
 
@@ -133,19 +143,21 @@ function ReportDocument({ object, report }: { object: TestObject; report: TestRe
         )}
       </Page>
 
-      <Page size="A4" style={s.page} wrap>
-        <Header />
-        <Footer generated={generated} object={object} />
+      {hasRaw && (
+        <Page size="A4" style={s.page} wrap>
+          <Header />
+          <Footer generated={generated} object={object} />
 
-        <Text style={s.h1}>Raw Acquisition Curve</Text>
-        <Text style={{ color: C.mute, fontSize: 9, marginBottom: 8 }}>
-          0.25 ms cadence · {report.rawResult.length} points (downsampled for display)
-        </Text>
-        <ChartSvg points={report.rawResult} />
+          <Text style={s.h1}>Raw Acquisition Curve</Text>
+          <Text style={{ color: C.mute, fontSize: 9, marginBottom: 8 }}>
+            0.25 ms cadence · {report.rawResult.length} points (downsampled for display)
+          </Text>
+          <ChartSvg points={report.rawResult} />
 
-        <Text style={s.h2}>Analysis Sample (first 30 of {report.analysisResult.length})</Text>
-        <SampleTable points={report.analysisResult.slice(0, 30)} />
-      </Page>
+          <Text style={s.h2}>Analysis Sample (first 30 of {report.analysisResult.length})</Text>
+          <SampleTable points={report.analysisResult.slice(0, 30)} />
+        </Page>
+      )}
     </Document>
   );
 }

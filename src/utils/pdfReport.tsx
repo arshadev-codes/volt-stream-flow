@@ -285,7 +285,7 @@ function Footer({ generated, object }: { generated: string; object: TestObject }
   );
 }
 
-function SectionTitle({ children }: { children: string }) {
+function SectionTitle({ children }: { children: ReactNode }) {
   return (
     <View>
       <View style={s.h2Bar} />

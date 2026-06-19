@@ -33,6 +33,7 @@ function ReportsPage() {
   const { objects, fetchReport } = useTestObjects();
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
+  const [sortBy, setSortBy] = useState<SortBy>("modifiedAt");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
 

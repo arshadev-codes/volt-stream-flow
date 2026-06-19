@@ -290,10 +290,22 @@ function ReportDetail({
     ? `RAW · 0.25 MS · ${report.rawResult.length} pts`
     : `ANALYSIS · 1 MS · ${report.analysisResult.length} pts`;
 
+  const [expand, setExpand] = useState(false);
+
   const doExport = async () => {
     try { await exportReportPdf(object, report); }
     catch (e) { console.error(e); alert("PDF export failed: " + (e as Error).message); }
   };
+
+  const graphView = (
+    <VoltageCurrentGraph
+      points={points}
+      timeUnit="MS"
+      currentUnit="A"
+      peakCurrent={report.peakCurrent}
+      datasetLabel={datasetLabel}
+    />
+  );
 
   return (
     <div className="space-y-5">

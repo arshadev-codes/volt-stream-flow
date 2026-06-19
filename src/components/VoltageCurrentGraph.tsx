@@ -112,7 +112,8 @@ export function VoltageCurrentGraph({
     const inPlotX = px >= MARGIN.left && px <= rect.width - MARGIN.right;
     const inPlotY = py >= MARGIN.top  && py <= rect.height - MARGIN.bottom;
 
-    const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85; // zoom in / out
+    if (e.deltaY >= 0) return; // zoom in only — scroll up zooms, scroll down ignored
+    const factor = 0.85; // zoom in
     const zoomDomain = (d: Domain, anchorFrac: number): Domain => {
       const [lo, hi] = d;
       const span = hi - lo;
@@ -167,7 +168,7 @@ export function VoltageCurrentGraph({
         ) : <div />}
         <div className="flex items-center gap-2">
           <span className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:inline-flex items-center gap-1">
-            <ZoomIn className="h-3 w-3" /> Scroll = zoom · Shift = X · Alt = Y
+            <ZoomIn className="h-3 w-3" /> Scroll = zoom in · Shift = X · Alt = Y · Reset to zoom out
           </span>
           {zoomed && (
             <button

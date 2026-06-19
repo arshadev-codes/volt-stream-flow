@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Download, CheckCircle2, XCircle, Circle, Search, Loader2 } from "lucide-react";
+import { FileText, Download, CheckCircle2, XCircle, Circle, Search, Loader2, Maximize2 } from "lucide-react";
+import { GraphModal } from "@/components/GraphModal";
 import { motion, AnimatePresence } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -24,6 +25,7 @@ export const Route = createFileRoute("/reports")({
 });
 
 type Filter = "all" | TestStatus;
+type SortBy = "modifiedAt" | "createdAt";
 const PAGE_LIMIT = 100;
 
 function ReportsPage() {
@@ -31,6 +33,7 @@ function ReportsPage() {
   const { objects, fetchReport } = useTestObjects();
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
+  const [sortBy, setSortBy] = useState<SortBy>("modifiedAt");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -46,9 +49,9 @@ function ReportsPage() {
         if (s && !`${o.serialNumber} ${o.name} ${o.workOrder} ${o.customerName}`.toLowerCase().includes(s)) return false;
         return true;
       })
-      .sort((a, b) => b.modifiedAt - a.modifiedAt) // sort by modified date desc
+      .sort((a, b) => (sortBy === "modifiedAt" ? b.modifiedAt - a.modifiedAt : b.createdAt - a.createdAt))
       .slice(0, PAGE_LIMIT);
-  }, [objects, filter, q]);
+  }, [objects, filter, q, sortBy]);
 
   const selected = selectedId ? objects.find((o) => o.id === selectedId) ?? null : null;
 
@@ -132,8 +135,34 @@ function ReportsPage() {
               ))}
             </div>
 
-            <div className="mt-1 px-1 pb-2 pt-3 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-              Sorted by modified date · showing latest {PAGE_LIMIT}
+            <div className="mt-3 flex items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Sort</span>
+              {([
+                { k: "modifiedAt", label: "Modified" },
+                { k: "createdAt", label: "Created" },
+              ] as { k: SortBy; label: string }[]).map(({ k, label }) => (
+                <label
+                  key={k}
+                  className={`inline-flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest transition ${
+                    sortBy === k
+                      ? "border-amber-500 bg-amber-500/15 text-amber-500"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={sortBy === k}
+                    onChange={() => setSortBy(k)}
+                    className="h-3 w-3"
+                    style={{ accentColor: "var(--peak)" }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-2 px-1 pb-2 pt-1 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+              Sorted by {sortBy === "modifiedAt" ? "modified" : "created"} date · showing latest {PAGE_LIMIT}
             </div>
 
             <div ref={listScope} className="max-h-[62vh] space-y-1.5 overflow-auto pr-1">
@@ -261,10 +290,22 @@ function ReportDetail({
     ? `RAW · 0.25 MS · ${report.rawResult.length} pts`
     : `ANALYSIS · 1 MS · ${report.analysisResult.length} pts`;
 
+  const [expand, setExpand] = useState(false);
+
   const doExport = async () => {
     try { await exportReportPdf(object, report); }
     catch (e) { console.error(e); alert("PDF export failed: " + (e as Error).message); }
   };
+
+  const graphView = (
+    <VoltageCurrentGraph
+      points={points}
+      timeUnit="MS"
+      currentUnit="A"
+      peakCurrent={report.peakCurrent}
+      datasetLabel={datasetLabel}
+    />
+  );
 
   return (
     <div className="space-y-5">
@@ -312,35 +353,41 @@ function ReportDetail({
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.1 }}
         className="rounded-md border border-border bg-card p-4"
       >
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="font-display text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
             Recorded Linearity Curve
           </div>
-          <label
-            className={`inline-flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground ${
-              hasRaw ? "cursor-pointer hover:bg-accent" : "cursor-not-allowed opacity-50"
-            }`}
-            title={hasRaw ? "" : "Raw data not stored for this report"}
-          >
-            <input
-              type="checkbox"
-              checked={showRaw && hasRaw}
-              disabled={!hasRaw}
-              onChange={(e) => onToggleRaw(e.target.checked)}
-              className="h-3.5 w-3.5"
-              style={{ accentColor: "var(--peak)" }}
-            />
-            Show Raw Data
-          </label>
+          <div className="flex items-center gap-2">
+            <label
+              className={`inline-flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground ${
+                hasRaw ? "cursor-pointer hover:bg-accent" : "cursor-not-allowed opacity-50"
+              }`}
+              title={hasRaw ? "" : "Raw data not stored for this report"}
+            >
+              <input
+                type="checkbox"
+                checked={showRaw && hasRaw}
+                disabled={!hasRaw}
+                onChange={(e) => onToggleRaw(e.target.checked)}
+                className="h-3.5 w-3.5"
+                style={{ accentColor: "var(--peak)" }}
+              />
+              Show Raw Data
+            </label>
+            <button
+              onClick={() => setExpand(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground transition hover:bg-accent"
+            >
+              <Maximize2 className="h-3.5 w-3.5" /> View
+            </button>
+          </div>
         </div>
-        <VoltageCurrentGraph
-          points={points}
-          timeUnit="MS"
-          currentUnit="A"
-          peakCurrent={report.peakCurrent}
-          datasetLabel={datasetLabel}
-        />
+        {graphView}
       </motion.div>
+
+      <GraphModal open={expand} onClose={() => setExpand(false)} title={`${object.serialNumber} · Linearity Curve`}>
+        {graphView}
+      </GraphModal>
 
       <motion.details
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.4 }}

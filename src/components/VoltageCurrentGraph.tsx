@@ -168,7 +168,7 @@ export function VoltageCurrentGraph({
         ) : <div />}
         <div className="flex items-center gap-2">
           <span className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:inline-flex items-center gap-1">
-            <ZoomIn className="h-3 w-3" /> Scroll = zoom · Shift = X · Alt = Y
+            <ZoomIn className="h-3 w-3" /> Scroll = zoom in · Shift = X · Alt = Y · Reset to zoom out
           </span>
           {zoomed && (
             <button

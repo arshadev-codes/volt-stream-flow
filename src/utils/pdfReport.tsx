@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { pdf, Document, Page, Text, View, StyleSheet, Svg, Path, Line, Rect, G } from "@react-pdf/renderer";
 import type { TestObject, TestReport } from "@/types/testObject";
 import type { RawPoint } from "@/types/sample";

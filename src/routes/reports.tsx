@@ -353,35 +353,41 @@ function ReportDetail({
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.1 }}
         className="rounded-md border border-border bg-card p-4"
       >
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="font-display text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
             Recorded Linearity Curve
           </div>
-          <label
-            className={`inline-flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground ${
-              hasRaw ? "cursor-pointer hover:bg-accent" : "cursor-not-allowed opacity-50"
-            }`}
-            title={hasRaw ? "" : "Raw data not stored for this report"}
-          >
-            <input
-              type="checkbox"
-              checked={showRaw && hasRaw}
-              disabled={!hasRaw}
-              onChange={(e) => onToggleRaw(e.target.checked)}
-              className="h-3.5 w-3.5"
-              style={{ accentColor: "var(--peak)" }}
-            />
-            Show Raw Data
-          </label>
+          <div className="flex items-center gap-2">
+            <label
+              className={`inline-flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground ${
+                hasRaw ? "cursor-pointer hover:bg-accent" : "cursor-not-allowed opacity-50"
+              }`}
+              title={hasRaw ? "" : "Raw data not stored for this report"}
+            >
+              <input
+                type="checkbox"
+                checked={showRaw && hasRaw}
+                disabled={!hasRaw}
+                onChange={(e) => onToggleRaw(e.target.checked)}
+                className="h-3.5 w-3.5"
+                style={{ accentColor: "var(--peak)" }}
+              />
+              Show Raw Data
+            </label>
+            <button
+              onClick={() => setExpand(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground transition hover:bg-accent"
+            >
+              <Maximize2 className="h-3.5 w-3.5" /> View
+            </button>
+          </div>
         </div>
-        <VoltageCurrentGraph
-          points={points}
-          timeUnit="MS"
-          currentUnit="A"
-          peakCurrent={report.peakCurrent}
-          datasetLabel={datasetLabel}
-        />
+        {graphView}
       </motion.div>
+
+      <GraphModal open={expand} onClose={() => setExpand(false)} title={`${object.serialNumber} · Linearity Curve`}>
+        {graphView}
+      </GraphModal>
 
       <motion.details
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.4 }}

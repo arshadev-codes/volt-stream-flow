@@ -49,9 +49,9 @@ function ReportsPage() {
         if (s && !`${o.serialNumber} ${o.name} ${o.workOrder} ${o.customerName}`.toLowerCase().includes(s)) return false;
         return true;
       })
-      .sort((a, b) => b.modifiedAt - a.modifiedAt) // sort by modified date desc
+      .sort((a, b) => (sortBy === "modifiedAt" ? b.modifiedAt - a.modifiedAt : b.createdAt - a.createdAt))
       .slice(0, PAGE_LIMIT);
-  }, [objects, filter, q]);
+  }, [objects, filter, q, sortBy]);
 
   const selected = selectedId ? objects.find((o) => o.id === selectedId) ?? null : null;
 

@@ -112,7 +112,8 @@ export function VoltageCurrentGraph({
     const inPlotX = px >= MARGIN.left && px <= rect.width - MARGIN.right;
     const inPlotY = py >= MARGIN.top  && py <= rect.height - MARGIN.bottom;
 
-    const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85; // zoom in / out
+    if (e.deltaY >= 0) return; // zoom in only — scroll up zooms, scroll down ignored
+    const factor = 0.85; // zoom in
     const zoomDomain = (d: Domain, anchorFrac: number): Domain => {
       const [lo, hi] = d;
       const span = hi - lo;

@@ -25,6 +25,7 @@ export const Route = createFileRoute("/reports")({
 });
 
 type Filter = "all" | TestStatus;
+type SortBy = "modifiedAt" | "createdAt";
 const PAGE_LIMIT = 100;
 
 function ReportsPage() {

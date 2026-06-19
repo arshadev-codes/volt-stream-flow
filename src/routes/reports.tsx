@@ -135,8 +135,34 @@ function ReportsPage() {
               ))}
             </div>
 
-            <div className="mt-1 px-1 pb-2 pt-3 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-              Sorted by modified date · showing latest {PAGE_LIMIT}
+            <div className="mt-3 flex items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Sort</span>
+              {([
+                { k: "modifiedAt", label: "Modified" },
+                { k: "createdAt", label: "Created" },
+              ] as { k: SortBy; label: string }[]).map(({ k, label }) => (
+                <label
+                  key={k}
+                  className={`inline-flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest transition ${
+                    sortBy === k
+                      ? "border-amber-500 bg-amber-500/15 text-amber-500"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={sortBy === k}
+                    onChange={() => setSortBy(k)}
+                    className="h-3 w-3"
+                    style={{ accentColor: "var(--peak)" }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-2 px-1 pb-2 pt-1 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+              Sorted by {sortBy === "modifiedAt" ? "modified" : "created"} date · showing latest {PAGE_LIMIT}
             </div>
 
             <div ref={listScope} className="max-h-[62vh] space-y-1.5 overflow-auto pr-1">

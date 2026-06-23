@@ -7,16 +7,40 @@ import type { RawPoint } from "@/types/sample";
  * High-fidelity vector PDF report. Charts are drawn as native SVG inside
  * the PDF so output is sharp at any print resolution.
  */
-export async function exportReportPdf(object: TestObject, report: TestReport) {
-  const blob = await pdf(<ReportDocument object={object} report={report} />).toBlob();
+export interface ExportPdfOptions {
+  /** Inclusive X range, in milliseconds, to clip both raw and analysis curves to. */
+  xRangeMs?: [number, number];
+}
+
+export async function exportReportPdf(
+  object: TestObject,
+  report: TestReport,
+  options: ExportPdfOptions = {},
+) {
+  const clipped = options.xRangeMs ? clipReport(report, options.xRangeMs) : report;
+  const blob = await pdf(
+    <ReportDocument object={object} report={clipped} xRangeMs={options.xRangeMs} />,
+  ).toBlob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `Report_${object.serialNumber}_${report.status}.pdf`;
+  const suffix = options.xRangeMs
+    ? `_zoom_${Math.round(options.xRangeMs[0])}-${Math.round(options.xRangeMs[1])}ms`
+    : "";
+  a.download = `Report_${object.serialNumber}_${report.status}${suffix}.pdf`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function clipReport(report: TestReport, [lo, hi]: [number, number]): TestReport {
+  const inRange = (p: RawPoint) => p.timestamp >= lo && p.timestamp <= hi;
+  return {
+    ...report,
+    rawResult: report.rawResult.filter(inRange),
+    analysisResult: report.analysisResult.filter(inRange),
+  };
 }
 
 /* ----------------- Theme ----------------- */
@@ -126,13 +150,18 @@ const s = StyleSheet.create({
 
 /* ----------------- Document ----------------- */
 
-function ReportDocument({ object, report }: { object: TestObject; report: TestReport }) {
+function ReportDocument({ object, report, xRangeMs }: {
+  object: TestObject;
+  report: TestReport;
+  xRangeMs?: [number, number];
+}) {
   const generated = new Date().toLocaleString();
   const completed = new Date(report.completedAt).toLocaleString();
   const created = new Date(object.createdAt).toLocaleString();
   const statusColor = report.status === "passed" ? C.ok : C.fail;
   const statusSoft = report.status === "passed" ? C.okSoft : C.failSoft;
   const hasRaw = report.rawResult.length > 0;
+  const isZoom = !!xRangeMs;
 
   return (
     <Document title={`Reactor Test Report — ${object.serialNumber}`} author="Electrosoft Automation">
@@ -159,13 +188,18 @@ function ReportDocument({ object, report }: { object: TestObject; report: TestRe
                 {created}
               </Text>
             </View>
+            {isZoom && (
+              <Text style={{ marginTop: 6, fontSize: 8, color: C.amberDark, fontFamily: "Helvetica-Bold", letterSpacing: 1 }}>
+                ZOOM WINDOW · {xRangeMs![0].toFixed(1)} – {xRangeMs![1].toFixed(1)} ms
+              </Text>
+            )}
           </View>
           <View style={{ alignItems: "flex-end" }}>
             <View style={[s.badge, { backgroundColor: statusColor, color: C.white, marginBottom: 6 }]}>
               <Text>{report.status.toUpperCase()}</Text>
             </View>
             <View style={[s.badge, { backgroundColor: statusSoft, color: statusColor }]}>
-              <Text>{hasRaw ? "RAW + ANALYSIS" : "ANALYSIS ONLY"}</Text>
+              <Text>{isZoom ? "ZOOMED VIEW" : hasRaw ? "RAW + ANALYSIS" : "ANALYSIS ONLY"}</Text>
             </View>
             <Text style={{ fontSize: 7, color: C.mute, marginTop: 6 }}>
               ID · {object.id.slice(0, 8).toUpperCase()}

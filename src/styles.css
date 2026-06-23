@@ -166,3 +166,21 @@
     0 1px 0 color-mix(in oklab, black 25%, transparent),
     0 10px 30px -20px color-mix(in oklab, black 60%, transparent);
 }
+
+/* ---------- uPlot integration (themed) ---------- */
+.uplot-wrap { position: relative; }
+.uplot-wrap .u-wrap { background: transparent !important; }
+.uplot-wrap .u-legend { display: none; }
+.uplot-wrap .u-cursor-x,
+.uplot-wrap .u-cursor-y {
+  border-color: color-mix(in oklab, var(--peak) 70%, transparent) !important;
+}
+.uplot-wrap .u-select {
+  background: color-mix(in oklab, var(--peak) 14%, transparent) !important;
+  border: 1px solid color-mix(in oklab, var(--peak) 60%, transparent);
+}
+.uplot-wrap .u-axis text,
+.uplot-wrap .u-label {
+  fill: var(--muted-foreground);
+}
+

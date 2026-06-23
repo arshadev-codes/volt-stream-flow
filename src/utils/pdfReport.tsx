@@ -7,16 +7,40 @@ import type { RawPoint } from "@/types/sample";
  * High-fidelity vector PDF report. Charts are drawn as native SVG inside
  * the PDF so output is sharp at any print resolution.
  */
-export async function exportReportPdf(object: TestObject, report: TestReport) {
-  const blob = await pdf(<ReportDocument object={object} report={report} />).toBlob();
+export interface ExportPdfOptions {
+  /** Inclusive X range, in milliseconds, to clip both raw and analysis curves to. */
+  xRangeMs?: [number, number];
+}
+
+export async function exportReportPdf(
+  object: TestObject,
+  report: TestReport,
+  options: ExportPdfOptions = {},
+) {
+  const clipped = options.xRangeMs ? clipReport(report, options.xRangeMs) : report;
+  const blob = await pdf(
+    <ReportDocument object={object} report={clipped} xRangeMs={options.xRangeMs} />,
+  ).toBlob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `Report_${object.serialNumber}_${report.status}.pdf`;
+  const suffix = options.xRangeMs
+    ? `_zoom_${Math.round(options.xRangeMs[0])}-${Math.round(options.xRangeMs[1])}ms`
+    : "";
+  a.download = `Report_${object.serialNumber}_${report.status}${suffix}.pdf`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function clipReport(report: TestReport, [lo, hi]: [number, number]): TestReport {
+  const inRange = (p: RawPoint) => p.timestamp >= lo && p.timestamp <= hi;
+  return {
+    ...report,
+    rawResult: report.rawResult.filter(inRange),
+    analysisResult: report.analysisResult.filter(inRange),
+  };
 }
 
 /* ----------------- Theme ----------------- */

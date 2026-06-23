@@ -150,13 +150,18 @@ const s = StyleSheet.create({
 
 /* ----------------- Document ----------------- */
 
-function ReportDocument({ object, report }: { object: TestObject; report: TestReport }) {
+function ReportDocument({ object, report, xRangeMs }: {
+  object: TestObject;
+  report: TestReport;
+  xRangeMs?: [number, number];
+}) {
   const generated = new Date().toLocaleString();
   const completed = new Date(report.completedAt).toLocaleString();
   const created = new Date(object.createdAt).toLocaleString();
   const statusColor = report.status === "passed" ? C.ok : C.fail;
   const statusSoft = report.status === "passed" ? C.okSoft : C.failSoft;
   const hasRaw = report.rawResult.length > 0;
+  const isZoom = !!xRangeMs;
 
   return (
     <Document title={`Reactor Test Report — ${object.serialNumber}`} author="Electrosoft Automation">
@@ -183,13 +188,18 @@ function ReportDocument({ object, report }: { object: TestObject; report: TestRe
                 {created}
               </Text>
             </View>
+            {isZoom && (
+              <Text style={{ marginTop: 6, fontSize: 8, color: C.amberDark, fontFamily: "Helvetica-Bold", letterSpacing: 1 }}>
+                ZOOM WINDOW · {xRangeMs![0].toFixed(1)} – {xRangeMs![1].toFixed(1)} ms
+              </Text>
+            )}
           </View>
           <View style={{ alignItems: "flex-end" }}>
             <View style={[s.badge, { backgroundColor: statusColor, color: C.white, marginBottom: 6 }]}>
               <Text>{report.status.toUpperCase()}</Text>
             </View>
             <View style={[s.badge, { backgroundColor: statusSoft, color: statusColor }]}>
-              <Text>{hasRaw ? "RAW + ANALYSIS" : "ANALYSIS ONLY"}</Text>
+              <Text>{isZoom ? "ZOOMED VIEW" : hasRaw ? "RAW + ANALYSIS" : "ANALYSIS ONLY"}</Text>
             </View>
             <Text style={{ fontSize: 7, color: C.mute, marginTop: 6 }}>
               ID · {object.id.slice(0, 8).toUpperCase()}

@@ -292,10 +292,27 @@ function ReportDetail({
     : `ANALYSIS · 1 MS · ${report.analysisResult.length} pts`;
 
   const [expand, setExpand] = useState(false);
+  const [xRange, setXRange] = useState<[number, number] | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  // Reset zoom-aware range when the underlying dataset switches
+  useEffect(() => { setXRange(null); }, [report.completedAt, showRaw]);
 
   const doExport = async () => {
-    try { await exportReportPdf(object, report); }
-    catch (e) { console.error(e); alert("PDF export failed: " + (e as Error).message); }
+    if (exporting) return;
+    setExporting(true);
+    const toastId = toast.loading("Generating PDF report…", {
+      description: xRange ? "Including the currently zoomed time window." : "Including the full recorded curve.",
+    });
+    try {
+      await exportReportPdf(object, report, { xRangeMs: xRange ?? undefined });
+      toast.success("PDF exported", { id: toastId });
+    } catch (e) {
+      console.error(e);
+      toast.error("PDF export failed", { id: toastId, description: (e as Error).message });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const graphView = (
@@ -305,6 +322,7 @@ function ReportDetail({
       currentUnit="A"
       peakCurrent={report.peakCurrent}
       datasetLabel={datasetLabel}
+      onRangeChange={setXRange}
     />
   );
 
@@ -331,11 +349,26 @@ function ReportDetail({
               ? "border-[var(--ok)]/60 bg-[var(--ok)]/15 text-[var(--ok)]"
               : "border-destructive/60 bg-destructive/15 text-destructive"
           }`}>{report.status}</span>
+          {xRange && (
+            <span className="hidden rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-widest text-amber-500 md:inline">
+              ZOOM · {xRange[0].toFixed(0)}–{xRange[1].toFixed(0)} ms
+            </span>
+          )}
           <button
             onClick={doExport}
-            className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-background hover:brightness-110"
+            disabled={exporting}
+            aria-busy={exporting}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-background transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
           >
-            <Download className="h-3.5 w-3.5" /> Export PDF
+            {exporting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…
+              </>
+            ) : (
+              <>
+                <Download className="h-3.5 w-3.5" /> {xRange ? "Export Zoom PDF" : "Export PDF"}
+              </>
+            )}
           </button>
         </div>
       </motion.div>

@@ -47,6 +47,10 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
     const [hover, setHover] = useState<{ t: number; v: number; c: number } | null>(null);
     const [zoomed, setZoomed] = useState(false);
     const userZoomedRef = useRef(false);
+    // Live refs so uPlot hooks always see the current base range, not the range
+    // captured when the plot instance was created.
+    const baseXMinRef = useRef(0);
+    const baseXMaxRef = useRef(1);
 
     // ----- transform points -> AlignedData -----
     const { data, baseXMin, baseXMax, peakDisplay, tLabel, iLabel } = useMemo(() => {

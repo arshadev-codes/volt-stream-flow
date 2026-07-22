@@ -78,12 +78,14 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
     // Expose a reset method so the parent can force a full-range view on demand.
     useImperativeHandle(ref, () => ({
       resetZoom: () => {
+        userZoomedRef.current = false;
+        setZoomed(false);
+        onRangeChange?.(null);
         const u = plotRef.current;
         if (!u) return;
-        userZoomedRef.current = false;
-        u.setScale("x", { min: baseXMin, max: baseXMax });
+        u.setScale("x", { min: baseXMinRef.current, max: baseXMaxRef.current });
       },
-    }), [baseXMin, baseXMax]);
+    }), [onRangeChange]);
 
     // ----- build / rebuild plot when units, visibility, or label change -----
     useEffect(() => {

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Gauge, Maximize2 } from "lucide-react";
 import { TestController } from "@/components/TestController";
-import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
+import { VoltageCurrentGraph, type VoltageCurrentGraphRef } from "@/components/VoltageCurrentGraph";
 import { StatCard } from "@/components/StatCard";
 import { BrandHeader } from "@/components/BrandHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -38,6 +38,7 @@ function Dashboard() {
   const { theme, toggle } = useTheme();
   const { objects, saveReport, getReport, getObject } = useTestObjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const graphRef = useRef<VoltageCurrentGraphRef | null>(null);
 
   const {
     raw, analysis, phase, duration,
@@ -61,10 +62,10 @@ function Dashboard() {
   const beginTest = () => {
     if (!selectedId) { alert("Select a test object from the search bar first."); return; }
     if (hasExistingReport) { setConfirmOverwrite(true); return; }
-    reset(); start();
+    reset(); graphRef.current?.resetZoom(); start();
   };
 
-  const confirmedStart = () => { setConfirmOverwrite(false); reset(); start(); };
+  const confirmedStart = () => { setConfirmOverwrite(false); reset(); graphRef.current?.resetZoom(); start(); };
 
   useEffect(() => {
     if (phase === "completed" && selectedId && raw.length > 0) setPendingPassFail(true);
@@ -86,6 +87,7 @@ function Dashboard() {
 
   const graphView = (
     <VoltageCurrentGraph
+      ref={graphRef}
       points={points}
       timeUnit={timeUnit}
       currentUnit={currentUnit}

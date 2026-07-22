@@ -262,16 +262,32 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
     }, [timeUnit, currentUnit, showCurrent, showVoltage]);
 
     // ----- push new data without rebuilding -----
+    const prevPointsLenRef = useRef(0);
     useEffect(() => {
       const u = plotRef.current;
       if (!u) return;
+
+      // Keep base-range refs current so uPlot hooks compare against fresh bounds.
+      baseXMinRef.current = baseXMin;
+      baseXMaxRef.current = baseXMax;
+
       const prevMin = u.scales.x.min;
       const prevMax = u.scales.x.max;
+      const prevLen = prevPointsLenRef.current;
+      prevPointsLenRef.current = points.length;
+
+      // A shrink in sample count means a new test / clear -> force full range.
+      const isReset = points.length < prevLen;
+      if (isReset) {
+        userZoomedRef.current = false;
+        setZoomed(false);
+        onRangeChange?.(null);
+      }
 
       // If the user has actively zoomed, keep that window and clamp it to the new data bounds.
       // Otherwise, always snap to the full recorded range so the live trace never appears zoomed in.
       u.setData(data, !userZoomedRef.current);
-      if (userZoomedRef.current && prevMin != null && prevMax != null) {
+      if (!isReset && userZoomedRef.current && prevMin != null && prevMax != null) {
         const clampedMin = Math.max(prevMin, baseXMin);
         const clampedMax = Math.min(prevMax, baseXMax);
         if (clampedMax > clampedMin) {

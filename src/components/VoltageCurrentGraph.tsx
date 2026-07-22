@@ -223,10 +223,14 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
           setScale: [
             (u, key) => {
               if (key !== "x") return;
+              const bMin = baseXMinRef.current;
+              const bMax = baseXMaxRef.current;
               const [min, max] = u.scales.x.min != null && u.scales.x.max != null
                 ? [u.scales.x.min, u.scales.x.max]
-                : [baseXMin, baseXMax];
-              const isZoomed = !(min <= baseXMin + 1e-9 && max >= baseXMax - 1e-9);
+                : [bMin, bMax];
+              const span = Math.max(bMax - bMin, 1e-9);
+              const tol = span * 1e-6;
+              const isZoomed = !(min <= bMin + tol && max >= bMax - tol);
               setZoomed(isZoomed);
               userZoomedRef.current = isZoomed;
               onRangeChange?.(isZoomed ? [min, max] : null);

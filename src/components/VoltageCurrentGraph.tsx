@@ -47,6 +47,10 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
     const [hover, setHover] = useState<{ t: number; v: number; c: number } | null>(null);
     const [zoomed, setZoomed] = useState(false);
     const userZoomedRef = useRef(false);
+    // Live refs so uPlot hooks always see the current base range, not the range
+    // captured when the plot instance was created.
+    const baseXMinRef = useRef(0);
+    const baseXMaxRef = useRef(1);
 
     // ----- transform points -> AlignedData -----
     const { data, baseXMin, baseXMax, peakDisplay, tLabel, iLabel } = useMemo(() => {
@@ -74,12 +78,14 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
     // Expose a reset method so the parent can force a full-range view on demand.
     useImperativeHandle(ref, () => ({
       resetZoom: () => {
+        userZoomedRef.current = false;
+        setZoomed(false);
+        onRangeChange?.(null);
         const u = plotRef.current;
         if (!u) return;
-        userZoomedRef.current = false;
-        u.setScale("x", { min: baseXMin, max: baseXMax });
+        u.setScale("x", { min: baseXMinRef.current, max: baseXMaxRef.current });
       },
-    }), [baseXMin, baseXMax]);
+    }), [onRangeChange]);
 
     // ----- build / rebuild plot when units, visibility, or label change -----
     useEffect(() => {
@@ -219,10 +225,14 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
           setScale: [
             (u, key) => {
               if (key !== "x") return;
+              const bMin = baseXMinRef.current;
+              const bMax = baseXMaxRef.current;
               const [min, max] = u.scales.x.min != null && u.scales.x.max != null
                 ? [u.scales.x.min, u.scales.x.max]
-                : [baseXMin, baseXMax];
-              const isZoomed = !(min <= baseXMin + 1e-9 && max >= baseXMax - 1e-9);
+                : [bMin, bMax];
+              const span = Math.max(bMax - bMin, 1e-9);
+              const tol = span * 1e-6;
+              const isZoomed = !(min <= bMin + tol && max >= bMax - tol);
               setZoomed(isZoomed);
               userZoomedRef.current = isZoomed;
               onRangeChange?.(isZoomed ? [min, max] : null);
@@ -254,16 +264,32 @@ export const VoltageCurrentGraph = forwardRef<VoltageCurrentGraphRef, Props>(
     }, [timeUnit, currentUnit, showCurrent, showVoltage]);
 
     // ----- push new data without rebuilding -----
+    const prevPointsLenRef = useRef(0);
     useEffect(() => {
       const u = plotRef.current;
       if (!u) return;
+
+      // Keep base-range refs current so uPlot hooks compare against fresh bounds.
+      baseXMinRef.current = baseXMin;
+      baseXMaxRef.current = baseXMax;
+
       const prevMin = u.scales.x.min;
       const prevMax = u.scales.x.max;
+      const prevLen = prevPointsLenRef.current;
+      prevPointsLenRef.current = points.length;
+
+      // A shrink in sample count means a new test / clear -> force full range.
+      const isReset = points.length < prevLen;
+      if (isReset) {
+        userZoomedRef.current = false;
+        setZoomed(false);
+        onRangeChange?.(null);
+      }
 
       // If the user has actively zoomed, keep that window and clamp it to the new data bounds.
       // Otherwise, always snap to the full recorded range so the live trace never appears zoomed in.
       u.setData(data, !userZoomedRef.current);
-      if (userZoomedRef.current && prevMin != null && prevMax != null) {
+      if (!isReset && userZoomedRef.current && prevMin != null && prevMax != null) {
         const clampedMin = Math.max(prevMin, baseXMin);
         const clampedMax = Math.min(prevMax, baseXMax);
         if (clampedMax > clampedMin) {

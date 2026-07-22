@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Gauge, Maximize2 } from "lucide-react";
 import { TestController } from "@/components/TestController";
-import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
+import { VoltageCurrentGraph, type VoltageCurrentGraphRef } from "@/components/VoltageCurrentGraph";
 import { StatCard } from "@/components/StatCard";
 import { BrandHeader } from "@/components/BrandHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";

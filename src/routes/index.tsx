@@ -87,6 +87,7 @@ function Dashboard() {
 
   const graphView = (
     <VoltageCurrentGraph
+      ref={graphRef}
       points={points}
       timeUnit={timeUnit}
       currentUnit={currentUnit}

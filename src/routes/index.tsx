@@ -62,10 +62,10 @@ function Dashboard() {
   const beginTest = () => {
     if (!selectedId) { alert("Select a test object from the search bar first."); return; }
     if (hasExistingReport) { setConfirmOverwrite(true); return; }
-    reset(); start();
+    reset(); graphRef.current?.resetZoom(); start();
   };
 
-  const confirmedStart = () => { setConfirmOverwrite(false); reset(); start(); };
+  const confirmedStart = () => { setConfirmOverwrite(false); reset(); graphRef.current?.resetZoom(); start(); };
 
   useEffect(() => {
     if (phase === "completed" && selectedId && raw.length > 0) setPendingPassFail(true);

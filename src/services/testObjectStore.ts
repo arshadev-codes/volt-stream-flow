@@ -48,10 +48,25 @@ function rowToObject(row: any): TestObject {
     ratedVoltage: Number(row.rated_voltage) || 0,
     maxVoltage: Number(meta.maxVoltage ?? row.rated_voltage) || 0,
     ratedCurrent: Number(row.rated_current) || 0,
-    peakCurrent: Number(meta.peakCurrent ?? row.rated_current) || 0,
     frequency: meta.frequency,
     inductance: meta.inductance,
     notes: meta.notes,
+
+    ratedPowerValue: meta.ratedPowerValue,
+    ratedPowerUnit: meta.ratedPowerUnit,
+    ratedPowerVA: meta.ratedPowerVA,
+    ratedVoltageNameplate: meta.ratedVoltageNameplate,
+    phases: meta.phases,
+    resAtRefTemp: meta.resAtRefTemp,
+    refTempForRes: meta.refTempForRes,
+    resIncreaseByLeadsPu: meta.resIncreaseByLeadsPu,
+
+    ratedAcRmsCurrent: meta.ratedAcRmsCurrent,
+    resAt20DegC: meta.resAt20DegC,
+    idcForLinearityTest: meta.idcForLinearityTest,
+
+    desiredTimeToReachIdc: meta.desiredTimeToReachIdc,
+
     createdAt: created,
     modifiedAt: modified,
     status: (meta.status as TestStatus) ?? "pending",
@@ -113,8 +128,23 @@ export function createObject(input: Omit<TestObject, "id" | "createdAt" | "modif
 
 function stripMeta(o: TestObject) {
   return {
-    name: o.name, manufacturer: o.manufacturer, maxVoltage: o.maxVoltage, peakCurrent: o.peakCurrent,
+    name: o.name, manufacturer: o.manufacturer, maxVoltage: o.maxVoltage,
     frequency: o.frequency, inductance: o.inductance, notes: o.notes, status: o.status,
+
+    ratedPowerValue: o.ratedPowerValue,
+    ratedPowerUnit: o.ratedPowerUnit,
+    ratedPowerVA: o.ratedPowerVA,
+    ratedVoltageNameplate: o.ratedVoltageNameplate,
+    phases: o.phases,
+    resAtRefTemp: o.resAtRefTemp,
+    refTempForRes: o.refTempForRes,
+    resIncreaseByLeadsPu: o.resIncreaseByLeadsPu,
+
+    ratedAcRmsCurrent: o.ratedAcRmsCurrent,
+    resAt20DegC: o.resAt20DegC,
+    idcForLinearityTest: o.idcForLinearityTest,
+
+    desiredTimeToReachIdc: o.desiredTimeToReachIdc,
   };
 }
 

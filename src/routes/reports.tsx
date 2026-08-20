@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Download, CheckCircle2, XCircle, Circle, Search, Loader2, Maximize2 } from "lucide-react";
 import { GraphModal } from "@/components/GraphModal";
+import { ExportSignOffDialog } from "@/components/Exportsignoffdialog";
 import { motion, AnimatePresence } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -10,7 +11,6 @@ import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
 import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
 import type { TestObject, TestReport, TestStatus } from "@/types/testObject";
-import { exportReportPdf } from "@/utils/pdfReport";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -291,11 +291,9 @@ function ReportDetail({
     : `ANALYSIS · 1 MS · ${report.analysisResult.length} pts`;
 
   const [expand, setExpand] = useState(false);
-
-  const doExport = async () => {
-    try { await exportReportPdf(object, report); }
-    catch (e) { console.error(e); alert("PDF export failed: " + (e as Error).message); }
-  };
+  // Export now opens the sign-off dialog first; the dialog itself calls
+  // exportReportPdf(object, report, signOff) once the user confirms.
+  const [exportOpen, setExportOpen] = useState(false);
 
   const graphView = (
     <VoltageCurrentGraph
@@ -331,7 +329,7 @@ function ReportDetail({
               : "border-destructive/60 bg-destructive/15 text-destructive"
           }`}>{report.status}</span>
           <button
-            onClick={doExport}
+            onClick={() => setExportOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-background hover:brightness-110"
           >
             <Download className="h-3.5 w-3.5" /> Export PDF
@@ -389,6 +387,13 @@ function ReportDetail({
         {graphView}
       </GraphModal>
 
+      <ExportSignOffDialog
+        object={object}
+        report={report}
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+      />
+
       <motion.details
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, duration: 0.4 }}
         className="rounded-md border border-border bg-card p-4 text-sm" open
@@ -403,7 +408,7 @@ function ReportDetail({
           <div>Rated V: <span className="text-foreground">{object.ratedVoltage} V</span></div>
           <div>Max V: <span className="text-foreground">{object.maxVoltage} V</span></div>
           <div>Rated I: <span className="text-foreground">{object.ratedCurrent} A</span></div>
-          <div>Peak I: <span className="text-foreground">{object.peakCurrent} A</span></div>
+          <div>Target Idc: <span className="text-foreground">{object.idcForLinearityTest?.toFixed(2) ?? "—"} A</span></div>
           <div>Inductance: <span className="text-foreground">{object.inductance ?? "—"} mH</span></div>
           {object.notes && <div className="col-span-2">Notes: <span className="text-foreground">{object.notes}</span></div>}
         </div>

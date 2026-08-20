@@ -78,7 +78,7 @@ export function TestObjectSearch({ objects, selectedId, onSelect }: Props) {
                     <span className="truncate text-muted-foreground">· {o.name}</span>
                   </div>
                   <div className="mt-0.5 text-[11px] text-muted-foreground">
-                    {o.peakCurrent} A peak · {o.maxVoltage} V max
+                    {o.idcForLinearityTest?.toFixed(2) ?? "—"} A target · {o.maxVoltage} V max
                   </div>
                 </div>
                 <span className="shrink-0 rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">

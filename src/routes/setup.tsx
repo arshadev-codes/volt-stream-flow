@@ -1,10 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { Boxes, Plus, Trash2, CheckCircle2, XCircle, Circle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Boxes, Plus, Trash2, CheckCircle2, XCircle, Circle, Lock } from "lucide-react";
 import { BrandHeader } from "@/components/BrandHeader";
 import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
-import type { TestStatus } from "@/types/testObject";
+import type { TestStatus, PhaseCount, PowerUnit, VoltageUnit, ResLeadsUnit } from "@/types/testObject";
+import {
+  computeRatedPowerVA,
+  computeRatedAcRmsCurrent,
+  computeResAt20DegC,
+  computeIdcForLinearityTest,
+  computeRatedVoltageV,
+  PU_LINEARITY,
+} from "@/utils/reactorCalcs";
+import { useSettings } from "@/hooks/useSettings";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -23,27 +32,63 @@ const EMPTY = {
   projectName: "",
   customerName: "",
   workOrder: "",
-  ratedVoltage: 230,
-  maxVoltage: 250,
-  ratedCurrent: 50,
-  peakCurrent: 100,
   frequency: 50,
   inductance: 0,
   notes: "",
+
+  // Nameplate data (linearity report)
+  ratedPowerValue: 0,
+  ratedPowerUnit: "MVAR" as PowerUnit,
+  ratedVoltageNameplate: 0,
+  ratedVoltageUnit: "V" as VoltageUnit,
+  phases: 3 as PhaseCount,
+  resAtRefTemp: 0,
+  refTempForRes: 75,
+  // NOTE: renamed from "resIncreaseByLeads" -> "resIncreaseByLeadsPu" so this
+  // key matches what the JSX below actually reads/writes AND what
+  // pdfReport.tsx / reactorCalcs.computeUltimateDcVoltage read on the
+  // TestObject. Previously these were different names, so the value never
+  // made it through and always showed "—" on the report.
+  resIncreaseByLeadsPu: 0,
+  resIncreaseByLeadsUnit: "%" as ResLeadsUnit,
 };
 
 function SetupPage() {
   const { theme, toggle } = useTheme();
   const { objects, create, remove } = useTestObjects();
+  const { settings } = useSettings();
   const [form, setForm] = useState(EMPTY);
 
   const update = <K extends keyof typeof EMPTY>(k: K, v: typeof EMPTY[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  // ---- Locked, computed nameplate fields (live preview) ----
+  const ratedPowerVA = useMemo(
+    () => computeRatedPowerVA(Number(form.ratedPowerValue) || 0, form.ratedPowerUnit),
+    [form.ratedPowerValue, form.ratedPowerUnit],
+  );
+  const ratedVoltageV = useMemo(
+    () => computeRatedVoltageV(Number(form.ratedVoltageNameplate) || 0, form.ratedVoltageUnit),
+    [form.ratedVoltageNameplate, form.ratedVoltageUnit],
+  );
+  const ratedAcRmsCurrent = useMemo(
+    () => computeRatedAcRmsCurrent(ratedPowerVA, ratedVoltageV, form.phases),
+    [ratedPowerVA, ratedVoltageV, form.phases],
+  );
+  const resAt20DegC = useMemo(
+    () => computeResAt20DegC(Number(form.resAtRefTemp) || 0, Number(form.refTempForRes) || 0),
+    [form.resAtRefTemp, form.refTempForRes],
+  );
+  const currentMultiplier = settings.currentMultiplier || PU_LINEARITY;
+  const idcForLinearityTest = useMemo(
+    () => computeIdcForLinearityTest(ratedAcRmsCurrent, currentMultiplier),
+    [ratedAcRmsCurrent, currentMultiplier],
+  );
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.serialNumber.trim() || !form.name.trim()) {
-      alert("Serial number and name are required.");
+    if (!form.serialNumber.trim()) {
+      alert("Serial number is required.");
       return;
     }
     create({
@@ -53,13 +98,31 @@ function SetupPage() {
       projectName: form.projectName.trim(),
       customerName: form.customerName.trim(),
       workOrder: form.workOrder.trim(),
-      ratedVoltage: Number(form.ratedVoltage),
-      maxVoltage: Number(form.maxVoltage),
-      ratedCurrent: Number(form.ratedCurrent),
-      peakCurrent: Number(form.peakCurrent),
       frequency: Number(form.frequency) || undefined,
       inductance: Number(form.inductance) || undefined,
       notes: form.notes.trim() || undefined,
+
+      ratedPowerValue: Number(form.ratedPowerValue) || undefined,
+      ratedPowerUnit: form.ratedPowerUnit,
+      ratedPowerVA: ratedPowerVA || undefined,
+
+      ratedVoltageNameplate: ratedVoltageV || undefined,
+      ratedVoltageUnit: form.ratedVoltageUnit,
+
+      phases: (Number(form.phases) as PhaseCount) || undefined,
+      resAtRefTemp: Number(form.resAtRefTemp) || undefined,
+      refTempForRes: Number(form.refTempForRes) || undefined,
+      resIncreaseByLeadsPu: Number(form.resIncreaseByLeadsPu) || undefined,
+      resIncreaseByLeadsUnit: form.resIncreaseByLeadsUnit,
+
+      ratedAcRmsCurrent: ratedAcRmsCurrent || undefined,
+      resAt20DegC: resAt20DegC || undefined,
+      idcForLinearityTest: idcForLinearityTest || undefined,
+      // Stores the multiplier actually used for this object, so the PDF
+      // report's "PU Linearity" row can show the real value instead of
+      // assuming the fixed 1.5 constant — matters if settings.currentMultiplier
+      // is ever changed away from the default.
+      puLinearity: currentMultiplier,
     });
     setForm(EMPTY);
   };
@@ -78,17 +141,97 @@ function SetupPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Serial Number *" value={form.serialNumber} onChange={(v) => update("serialNumber", v)} placeholder="RX-001" />
-              <Field label="Name *"          value={form.name}         onChange={(v) => update("name", v)} placeholder="Reactor Unit A" />
-              <Field label="Project Name"    value={form.projectName}  onChange={(v) => update("projectName", v)} placeholder="Substation Upgrade" />
-              <Field label="Customer Name"   value={form.customerName} onChange={(v) => update("customerName", v)} placeholder="Acme Power Co." />
-              <Field label="Work Order"      value={form.workOrder}    onChange={(v) => update("workOrder", v)} placeholder="WO-2026-0421" />
-              <Field label="Manufacturer"    value={form.manufacturer} onChange={(v) => update("manufacturer", v)} placeholder="Optional" />
-              <Field label="Frequency (Hz)"  type="number" value={form.frequency}    onChange={(v) => update("frequency", Number(v))} />
-              <Field label="Rated Voltage (V)" type="number" value={form.ratedVoltage} onChange={(v) => update("ratedVoltage", Number(v))} />
-              <Field label="Max Voltage (V)"   type="number" value={form.maxVoltage}   onChange={(v) => update("maxVoltage", Number(v))} />
-              <Field label="Rated Current (A)" type="number" value={form.ratedCurrent} onChange={(v) => update("ratedCurrent", Number(v))} />
-              <Field label="Peak Current (A)"  type="number" value={form.peakCurrent}  onChange={(v) => update("peakCurrent", Number(v))} />
-              <Field label="Inductance (mH)"   type="number" value={form.inductance}   onChange={(v) => update("inductance", Number(v))} />
+              <Field label="Description" value={form.name} onChange={(v) => update("name", v)} placeholder="Reactor Unit A" />
+              <Field label="Project Name" value={form.projectName} onChange={(v) => update("projectName", v)} placeholder="Substation Upgrade" />
+              <Field label="Customer Name" value={form.customerName} onChange={(v) => update("customerName", v)} placeholder="Acme Power Co." />
+              <Field label="Work Order" value={form.workOrder} onChange={(v) => update("workOrder", v)} placeholder="WO-2026-0421" />
+              {/* <Field label="Manufacturer" value={form.manufacturer} onChange={(v) => update("manufacturer", v)} placeholder="Optional" /> */}
+              <Field label="Frequency (Hz)" type="number" value={form.frequency} onChange={(v) => update("frequency", Number(v))} />
+              <Field label="Inductance (H)" type="number" value={form.inductance} onChange={(v) => update("inductance", Number(v))} />
+
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">Rated Power</span>
+                <div className="flex gap-1.5">
+                  <input
+                    type="number"
+                    value={form.ratedPowerValue}
+                    onChange={(e) => update("ratedPowerValue", Number(e.target.value))}
+                    placeholder="150"
+                    className="w-full min-w-0 flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <select
+                    value={form.ratedPowerUnit}
+                    onChange={(e) => update("ratedPowerUnit", e.target.value as PowerUnit)}
+                    className="w-24 shrink-0 rounded-md border border-border bg-card px-2 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="VAR">VAR</option>
+                    <option value="KVAR">KVAR</option>
+                    <option value="MVAR">MVAr</option>
+                  </select>
+                </div>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">Rated Voltage</span>
+                <div className="flex gap-1.5">
+                  <input
+                    type="number"
+                    value={form.ratedVoltageNameplate}
+                    onChange={(e) => update("ratedVoltageNameplate", Number(e.target.value))}
+                    placeholder="420000"
+                    className="w-full min-w-0 flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <select
+                    value={form.ratedVoltageUnit}
+                    onChange={(e) => update("ratedVoltageUnit", e.target.value as VoltageUnit)}
+                    className="w-20 shrink-0 rounded-md border border-border bg-card px-2 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="V">V</option>
+                    <option value="kV">kV</option>
+                    <option value="MV">MV</option>
+                  </select>
+                </div>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">No. of Phases</span>
+                <select
+                  value={form.phases}
+                  onChange={(e) => update("phases", Number(e.target.value) as PhaseCount)}
+                  className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value={1}>1 (Single Phase)</option>
+                  <option value={3}>3 (Three Phase)</option>
+                </select>
+              </label>
+
+              <Field label="Res/ph at Ref Temp (Ω)" type="number" value={form.resAtRefTemp} onChange={(v) => update("resAtRefTemp", Number(v))} />
+              <Field label="Ref Temp for Res (°C)" type="number" value={form.refTempForRes} onChange={(v) => update("refTempForRes", Number(v))} />
+
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">Res Increase by Leads</span>
+                <div className="flex gap-1.5">
+                  <input
+                    type="number"
+                    value={form.resIncreaseByLeadsPu}
+                    onChange={(e) => update("resIncreaseByLeadsPu", Number(e.target.value))}
+                    placeholder="e.g. 1.1"
+                    className="w-full min-w-0 flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <select
+                    value={form.resIncreaseByLeadsUnit}
+                    onChange={(e) => update("resIncreaseByLeadsUnit", e.target.value as ResLeadsUnit)}
+                    className="w-20 shrink-0 rounded-md border border-border bg-card px-2 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="Ω">Ω</option>
+                    <option value="%">%</option>
+                  </select>
+                </div>
+              </label>
+
+              <LockedField label="Rated AC RMS Current, A" value={ratedAcRmsCurrent} />
+              <LockedField label="Res/ph @ 20°C, Ω" value={resAt20DegC} />
+              <LockedField label="Idc for Linearity Test, A" value={idcForLinearityTest} />
             </div>
 
             <label className="block">
@@ -130,11 +273,10 @@ function SetupPage() {
                     <div className="flex items-center gap-2">
                       <StatusIcon status={o.status} />
                       <span className="truncate font-semibold text-foreground">{o.serialNumber}</span>
-                      <span className="truncate text-sm text-muted-foreground">· {o.name}</span>
+                      {o.name && <span className="truncate text-sm text-muted-foreground">· {o.name}</span>}
                     </div>
                     <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                      {o.peakCurrent} A peak · {o.maxVoltage} V max
-                      {o.workOrder ? ` · WO ${o.workOrder}` : ""}
+                      {o.workOrder ? `WO ${o.workOrder}` : ""}
                       {o.customerName ? ` · ${o.customerName}` : ""}
                     </div>
                   </div>
@@ -169,6 +311,20 @@ function Field({
         className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
       />
     </label>
+  );
+}
+
+/** Read-only, calculated field — value is derived, never typed by the user. */
+function LockedField({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="block">
+      <span className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">
+        <Lock className="h-2.5 w-2.5" /> {label}
+      </span>
+      <div className="w-full cursor-not-allowed select-none rounded-md border border-dashed border-border bg-card/60 px-3 py-2 font-mono text-sm text-foreground/80 opacity-90">
+        {value ? value.toFixed(4) : "—"}
+      </div>
+    </div>
   );
 }
 

@@ -9,7 +9,6 @@ export default defineConfig({
     plugins: [
       VitePWA({
         registerType: "autoUpdate",
-
         injectRegister: "auto",
 
         manifest: {
@@ -55,5 +54,31 @@ export default defineConfig({
         },
       }),
     ],
+
+    server: {
+      port: 5173,
+      strictPort: true,
+    },
+
+    // Buffer polyfill — react-pdf's PNG decoder relies on Node's Buffer
+    // API, which Vite does not polyfill for the browser by default
+    // (unlike Webpack/CRA). Without this, PNG images (logo, etc.) fail
+    // with "Incomplete or corrupt PNG file" / "Buffer is not defined"
+    // even when the file itself is perfectly valid.
+    define: {
+      global: "globalThis",
+    },
+    resolve: {
+      alias: {
+        buffer: "buffer",
+      },
+    },
+    optimizeDeps: {
+      esbuildOptions: {
+        define: {
+          global: "globalThis",
+        },
+      },
+    },
   },
 });

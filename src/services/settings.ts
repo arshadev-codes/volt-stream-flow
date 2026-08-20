@@ -8,10 +8,14 @@ const KEY = "esa.settings.v1";
 
 export interface AppSettings {
   storeRawData: boolean;
+  /** Multiplier used in Idc-for-linearity-test calc (Idc = ratedAcRmsCurrent × currentMultiplier × √2).
+   *  Locked at 1.5 (the standard value) by default in the UI — user can unlock and override. */
+  currentMultiplier: number;
 }
 
 const DEFAULTS: AppSettings = {
   storeRawData: false,
+  currentMultiplier: 1.5,
 };
 
 type Listener = (s: AppSettings) => void;

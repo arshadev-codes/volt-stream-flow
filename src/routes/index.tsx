@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Gauge, Maximize2 } from "lucide-react";
+import { Gauge, Maximize2, AlertTriangle } from "lucide-react";
 import { TestController } from "@/components/TestController";
+import { InterlockStatusPanel } from "@/components/InterlockStatusPanel";
 import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
 import { StatCard } from "@/components/StatCard";
 import { BrandHeader } from "@/components/BrandHeader";
@@ -15,6 +16,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
 import type { CurrentUnit, TimeUnit } from "@/types/sample";
 import { convertCurrentUnit, currentUnitLabel } from "@/utils/unitConversion";
+import { LinearityGraphTabs } from "@/components/LinearityGraphTabs";
+import { useDummySimulation } from "@/hooks/useDummySimulation";
+
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
@@ -29,70 +33,129 @@ export const Route = createFileRoute("/")({
 function Dashboard() {
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("MS");
   const [currentUnit, setCurrentUnit] = useState<CurrentUnit>("A");
-  const [showCurrent, setShowCurrent] = useState(true);
-  const [showVoltage, setShowVoltage] = useState(true);
+  const [showVoltage, setShowVoltage] = useState(false);
+  const [showSmoothLine, setShowSmoothLine] = useState(false);
   const [expand, setExpand] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<"passed" | "failed" | null>(null);
   const [pendingPassFail, setPendingPassFail] = useState(false);
 
   const { theme, toggle } = useTheme();
   const { objects, saveReport, getReport, getObject } = useTestObjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [setpointError, setSetpointError] = useState<string | null>(null);
 
   const {
-    raw, analysis, phase, duration,
-    latestCurrent, peakCurrent,
-    start, stop, reset,
+    raw, analysis, phase, connected, duration,
+    latestCurrent, peakCurrent, interlock, reset,
   } = useReactorTesting();
+
+  // Dummy simulation state — lives here (not lower down) because doSave()
+  // below needs to read from it. Remove this whole hook + the UI block at
+  // the bottom of this file once real hardware testing replaces it.
+  const sim = useDummySimulation();
 
   const selectedObject = selectedId ? getObject(selectedId) : null;
   const hasExistingReport = selectedId ? !!getReport(selectedId) : false;
 
-  // While running render raw stream. After completion default to analysis.
-  const isRunning = phase === "ramp_up" || phase === "decay";
+  const isRunning = phase === "ramp_up";
   const points = isRunning ? raw : (analysis.length ? analysis : raw);
   const datasetLabel = isRunning
-    ? "RAW · LIVE 0.25 MS"
-    : `ANALYSIS · 1 MS · ${analysis.length} pts`;
+    ? "RAW · LIVE"
+    : `ANALYSIS · ${analysis.length} pts`;
 
   const fmtCurrent = (v: number) =>
     convertCurrentUnit(v, currentUnit).toFixed(currentUnit === "mA" ? 0 : 2);
 
-  const beginTest = () => {
-    if (!selectedId) { alert("Select a test object from the search bar first."); return; }
-    if (hasExistingReport) { setConfirmOverwrite(true); return; }
-    reset(); start();
-  };
-
-  const confirmedStart = () => { setConfirmOverwrite(false); reset(); start(); };
-
+  // Real-hardware completion path (untouched).
   useEffect(() => {
     if (phase === "completed" && selectedId && raw.length > 0) setPendingPassFail(true);
   }, [phase, selectedId, raw.length]);
 
-  const finalize = (status: "passed" | "failed") => {
+  /**
+   * Fires whenever a test object is selected (or cleared) in the search box.
+   * Beyond updating which object is active, this pushes that object's
+   * calculated Idc (idcForLinearityTest) to the Modbus bridge server, which
+   * writes it into the Masibus controller's Set Value 1 register — this is
+   * what actually moves the physical peak-current setpoint on the test bench.
+   *
+   * setpointError surfaces failures (device unreachable, write rejected,
+   * server down) as a visible banner rather than only a console.error, so a
+   * failed write can't go unnoticed mid-test.
+   */
+  const handleSelectObject = (id: string | null) => {
+    setSelectedId(id);
+
+    if (id) {
+      const obj = getObject(id);
+      if (obj?.idcForLinearityTest) {
+        fetch("http://localhost:3000/api/setpoint", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: obj.idcForLinearityTest }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              setSetpointError(null);
+            } else {
+              setSetpointError(`Failed to set device current: ${data.error}`);
+            }
+          })
+          .catch((err) => {
+            setSetpointError(`Could not reach test bench server: ${err.message}`);
+          });
+      }
+    } else {
+      // Selection was cleared — clear any stale error along with it.
+      setSetpointError(null);
+    }
+  };
+
+  const doSave = (status: "passed" | "failed") => {
     if (!selectedId) return;
+
+    // Sim-aware: if a simulation run has data, that takes priority over
+    // whatever's in raw/analysis (which will be empty in dummy mode).
+    const usingSim = sim.points.length > 0;
+
     saveReport({
       objectId: selectedId,
       status,
-      rawResult: raw,
-      analysisResult: analysis,
-      peakCurrent,
-      durationS: duration,
+      rawResult: usingSim ? sim.points : raw,
+      analysisResult: usingSim ? sim.points : analysis,
+      peakCurrent: usingSim ? sim.peak : peakCurrent,
+      durationS: usingSim ? sim.duration : duration,
       completedAt: Date.now(),
     });
     setPendingPassFail(false);
+    setConfirmOverwrite(false);
+    setPendingStatus(null);
+  };
+
+  const finalize = (status: "passed" | "failed") => {
+    if (!selectedId) return;
+    if (hasExistingReport) {
+      setPendingStatus(status);
+      setConfirmOverwrite(true);
+      return;
+    }
+    doSave(status);
   };
 
   const graphView = (
-    <VoltageCurrentGraph
-      points={points}
+    <LinearityGraphTabs
+      points={sim.active ? sim.points : points}
+      rawPoints={sim.active ? sim.points : raw}
       timeUnit={timeUnit}
       currentUnit={currentUnit}
-      peakCurrent={peakCurrent}
-      showCurrent={showCurrent}
+      peakCurrent={sim.active ? sim.peak : peakCurrent}
+      datasetLabel={sim.active ? "SIMULATED · DUMMY DATA" : datasetLabel}
+      resistance={sim.active ? sim.resistance : selectedObject?.resAtRefTemp}
+      inductance={selectedObject?.inductance ?? 4.49}
+      ratedAcRmsCurrent={selectedObject?.ratedAcRmsCurrent ?? 171.8}
       showVoltage={showVoltage}
-      datasetLabel={datasetLabel}
+      showSmoothLine={showSmoothLine}
     />
   );
 
@@ -111,7 +174,7 @@ function Dashboard() {
               </div>
               {selectedObject && (
                 <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                  {selectedObject.peakCurrent} A peak · {selectedObject.maxVoltage} V max
+                  {selectedObject.idcForLinearityTest?.toFixed(2) ?? "—"} A target · {selectedObject.maxVoltage} V max
                   {selectedObject.workOrder && <> · WO {selectedObject.workOrder}</>}
                   {hasExistingReport && (
                     <span className="ml-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-500">
@@ -121,8 +184,30 @@ function Dashboard() {
                 </div>
               )}
             </div>
-            <TestObjectSearch objects={objects} selectedId={selectedId} onSelect={setSelectedId} />
+            <TestObjectSearch objects={objects} selectedId={selectedId} onSelect={handleSelectObject} />
           </div>
+
+          {setpointError && (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 font-mono text-xs text-destructive">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{setpointError}</span>
+              <button
+                onClick={() => setSetpointError(null)}
+                className="ml-auto shrink-0 text-[10px] font-bold uppercase tracking-wider text-destructive/70 hover:text-destructive"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {isRunning && !selectedId && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 font-mono text-xs text-amber-500">
+              <AlertTriangle className="h-4 w-4" />
+              Bench test is running but no test object is selected — this run won't be saved to a report.
+            </div>
+          )}
+
+          <InterlockStatusPanel status={interlock} />
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard label="Live Current"  value={fmtCurrent(latestCurrent)} unit={currentUnitLabel(currentUnit)} accent="current" />
@@ -132,13 +217,17 @@ function Dashboard() {
 
           <TestController
             status={phase}
+            connected={connected}
             timeUnit={timeUnit}
             currentUnit={currentUnit}
-            onStart={beginTest}
-            onStop={stop}
             onClear={reset}
             onTimeUnitChange={setTimeUnit}
             onCurrentUnitChange={setCurrentUnit}
+            canArm={interlock.canArm}
+            showVoltage={showVoltage}
+            onShowVoltageChange={setShowVoltage}
+            showSmoothLine={showSmoothLine}
+            onShowSmoothLineChange={setShowSmoothLine}
           />
 
           <motion.div
@@ -152,19 +241,46 @@ function Dashboard() {
                 <Gauge className="h-4 w-4 text-[var(--current)]" />
                 Reactor Linearity Curve
               </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <ChannelToggle label="Current" color="var(--current)" checked={showCurrent} onChange={setShowCurrent} />
-                <ChannelToggle label="Voltage" color="var(--voltage)" checked={showVoltage} onChange={setShowVoltage} />
-                <button
-                  onClick={() => setExpand(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground transition hover:bg-accent"
-                >
-                  <Maximize2 className="h-3.5 w-3.5" /> View
-                </button>
-              </div>
+              <button
+                onClick={() => setExpand(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground transition hover:bg-accent"
+              >
+                <Maximize2 className="h-3.5 w-3.5" /> View
+              </button>
             </div>
             {graphView}
           </motion.div>
+
+          {/* DUMMY SIMULATION PANEL — remove this whole block (and the
+             useDummySimulation hook + all sim.* references above) once
+             real hardware testing replaces the simulation. */}
+          <div className="panel flex flex-wrap items-center justify-between gap-4 p-4">
+            <div className="font-mono text-[11px] text-muted-foreground">
+              Dummy Mode · R (Ω):{" "}
+              <input
+                type="number" step="0.001" value={sim.resistance}
+                onChange={(e) => sim.setResistance(parseFloat(e.target.value) || 0)}
+                className="w-24 rounded-sm border border-border bg-card px-2 py-1 text-foreground"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={sim.active ? sim.stop : sim.start}
+                className="rounded-md bg-[var(--current)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110"
+              >
+                {sim.active ? "Stop Simulation" : "Start Simulation"}
+              </button>
+              {sim.points.length > 0 && (
+                <button
+                  onClick={() => selectedId && setPendingPassFail(true)}
+                  disabled={!selectedId}
+                  className="rounded-md bg-[var(--ok)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110 disabled:opacity-40"
+                >
+                  Save Simulation
+                </button>
+              )}
+            </div>
+          </div>
 
           <div className="pt-1 text-center font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
             © {new Date().getFullYear()} ELECTROSOFT AUTOMATION · RLTS v2.2
@@ -183,17 +299,17 @@ function Dashboard() {
           <>
             A report already exists for{" "}
             <span className="font-semibold text-foreground">{selectedObject?.serialNumber}</span>.
-            Running a new test will <strong className="text-destructive">overwrite</strong> the previously
+            Saving this run will <strong className="text-destructive">overwrite</strong> the previously
             stored data. Continue?
           </>
         }
         destructive
-        confirmLabel="Overwrite & Start"
-        onCancel={() => setConfirmOverwrite(false)}
-        onConfirm={confirmedStart}
+        confirmLabel="Overwrite & Save"
+        onCancel={() => { setConfirmOverwrite(false); setPendingStatus(null); }}
+        onConfirm={() => pendingStatus && doSave(pendingStatus)}
       />
 
-      {pendingPassFail && (
+      {pendingPassFail && !confirmOverwrite && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 backdrop-blur-md">
           <div className="panel w-full max-w-md p-6 text-center">
             <h2 className="font-display text-lg font-bold tracking-wide text-foreground">Mark Test Result</h2>
@@ -209,29 +325,5 @@ function Dashboard() {
         </div>
       )}
     </>
-  );
-}
-
-function ChannelToggle({
-  label, color, checked, onChange, disabled, title,
-}: { label: string; color: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; title?: string }) {
-  return (
-    <label
-      title={title}
-      className={`inline-flex select-none items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-foreground ${
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-accent"
-      }`}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-3.5 w-3.5"
-        style={{ accentColor: color }}
-      />
-      <span className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
-      {label}
-    </label>
   );
 }

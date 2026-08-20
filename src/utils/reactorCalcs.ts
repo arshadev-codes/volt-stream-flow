@@ -73,14 +73,12 @@ export function computeResAt20DegC(resAtRefTemp: number, refTempForRes: number):
   return denom > 0 ? resAtRefTemp * (COPPER_K + 20) / denom : 0;
 }
 
-/**
- * Idc for linearity test, A = Rated AC RMS Current × multiplier × √2.
- * Multiplier defaults to PU_LINEARITY (1.5) but can be overridden — e.g. by
- * settings.currentMultiplier — for sites that test at a different PU target.
- */
+/** Idc for linearity test, A = Rated AC RMS Current × multiplier × √2.
+ *  multiplier defaults to the standard PU_LINEARITY (1.5) but can be
+ *  overridden from Settings (unlocked "Current Multiplier" field). */
 export function computeIdcForLinearityTest(ratedAcRmsCurrent: number, multiplier: number = PU_LINEARITY): number {
   if (!ratedAcRmsCurrent) return 0;
-  return ratedAcRmsCurrent * (multiplier || PU_LINEARITY) * SQRT2;
+  return ratedAcRmsCurrent * multiplier * SQRT2;
 }
 
 /**
@@ -151,6 +149,27 @@ export function computePeakDcPoint(points: RawPoint[]): PeakDcPoint {
     if (p.current > peak.current) peak = p;
   }
   return { timeSec: peak.timestamp / 1000, voltage: peak.voltage };
+}
+
+/**
+ * Finds the recorded raw point closest to a given timestamp (ms) and
+ * returns its voltage. Used for the "locked tau" versions of Time to
+ * Steady State / Ultimate DC Voltage (see reportPdf.tsx computeReportFields
+ * Option 1) — reads the ACTUAL recorded voltage at that instant instead of
+ * computing it from the formula.
+ */
+export function computeVoltageAtTimestamp(points: RawPoint[], timestampMs: number): number {
+  if (!points.length) return 0;
+  let closest = points[0];
+  let closestDiff = Math.abs(points[0].timestamp - timestampMs);
+  for (const p of points) {
+    const diff = Math.abs(p.timestamp - timestampMs);
+    if (diff < closestDiff) {
+      closest = p;
+      closestDiff = diff;
+    }
+  }
+  return closest.voltage;
 }
 
 /**

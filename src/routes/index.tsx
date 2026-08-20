@@ -89,18 +89,40 @@ function Dashboard() {
     if (id) {
       const obj = getObject(id);
       if (obj?.idcForLinearityTest) {
-        fetch("http://localhost:3000/api/setpoint", {
+        fetch("http://localhost:3000/api/prepare-test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ value: obj.idcForLinearityTest }),
+          body: JSON.stringify({ idc: obj.idcForLinearityTest }),
         })
           .then((res) => res.json())
           .then((data) => {
             if (data.success) {
               setSetpointError(null);
-            } else {
-              setSetpointError(`Failed to set device current: ${data.error}`);
+              return;
             }
+
+            // Build a precise, register-by-register message so the person
+            // can see exactly what failed rather than a generic error.
+            const failedDefaults = [
+              ...(data.currentMeterDefaults ?? []),
+              ...(data.voltageMeterDefaults ?? []),
+            ].filter((r: { success: boolean }) => !r.success);
+
+            const parts: string[] = [];
+            if (failedDefaults.length > 0) {
+              parts.push(
+                `${failedDefaults.length} register(s) failed to reset: ` +
+                failedDefaults.map((r: { name: string; error: string }) => `${r.name} (${r.error})`).join(", ")
+              );
+            }
+            if (data.idcSetpoint && !data.idcSetpoint.success) {
+              parts.push(`Idc setpoint failed: ${data.idcSetpoint.error}`);
+            }
+            if (data.error) {
+              parts.push(data.error);
+            }
+
+            setSetpointError(parts.join(" · ") || "Unknown error preparing the test bench.");
           })
           .catch((err) => {
             setSetpointError(`Could not reach test bench server: ${err.message}`);

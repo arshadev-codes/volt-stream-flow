@@ -9,24 +9,10 @@ export interface RawPoint {
   voltage: number;
   current: number;
   phase: number;     // radians (V vs I phase angle)
-
-  // new_timestamp: number;
-  // linked_flux : number;
 }
-
-/** Legacy alias retained for transitional code. */
-export interface ReactorSample {
-  time: number;     // seconds
-  current: number;
-  voltage?: number;
-  phase: "ramp_up" | "decay";
-}
-export type Sample = ReactorSample;
 
 export type TimeUnit = "S" | "MS";
 export type CurrentUnit = "A" | "mA";
-
-export type TestStatus = ReactorPhase;
 
 /**
  * Live interlock/breaker status, read from DI0.1-DI0.6 on the bench panel.

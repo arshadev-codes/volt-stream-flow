@@ -87,10 +87,28 @@ function SetupPage() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!form.serialNumber.trim()) {
       alert("Serial number is required.");
       return;
     }
+
+    // Engineering fields that feed the report's calculations (Idc, tau,
+    // flux, etc.) — allowed to be blank/0 before this, which meant a test
+    // object could silently save with zeroed-out downstream numbers.
+    const missing: string[] = [];
+    if (!form.ratedPowerValue) missing.push("Rated Power");
+    if (!form.ratedVoltageNameplate) missing.push("Rated Voltage");
+    if (!form.frequency) missing.push("Frequency");
+    if (!form.inductance) missing.push("Inductance");
+    if (!form.resAtRefTemp) missing.push("Res/ph at Ref Temp");
+    if (!form.refTempForRes && form.refTempForRes !== 0) missing.push("Ref Temp for Res");
+
+    if (missing.length > 0) {
+      alert(`Please fill in the following required fields before creating the object:\n\n${missing.join("\n")}`);
+      return;
+    }
+
     create({
       serialNumber: form.serialNumber.trim(),
       name: form.name.trim(),
@@ -118,10 +136,6 @@ function SetupPage() {
       ratedAcRmsCurrent: ratedAcRmsCurrent || undefined,
       resAt20DegC: resAt20DegC || undefined,
       idcForLinearityTest: idcForLinearityTest || undefined,
-      // Stores the multiplier actually used for this object, so the PDF
-      // report's "PU Linearity" row can show the real value instead of
-      // assuming the fixed 1.5 constant — matters if settings.currentMultiplier
-      // is ever changed away from the default.
       puLinearity: currentMultiplier,
     });
     setForm(EMPTY);

@@ -14,6 +14,7 @@ import { useReactorTesting } from "@/hooks/useReactorTesting";
 import { motion } from "framer-motion";
 import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
+import { useSettings } from "@/hooks/useSettings";
 import type { CurrentUnit, TimeUnit } from "@/types/sample";
 import { convertCurrentUnit, currentUnitLabel } from "@/utils/unitConversion";
 import { LinearityGraphTabs } from "@/components/LinearityGraphTabs";
@@ -42,6 +43,8 @@ function Dashboard() {
 
   const { theme, toggle } = useTheme();
   const { objects, saveReport, getReport, getObject } = useTestObjects();
+  const { settings } = useSettings();
+  const isLive = settings.dataSource === "live";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [setpointError, setSetpointError] = useState<string | null>(null);
 
@@ -51,9 +54,19 @@ function Dashboard() {
   } = useReactorTesting();
 
   // Dummy simulation state — lives here (not lower down) because doSave()
-  // below needs to read from it. Remove this whole hook + the UI block at
-  // the bottom of this file once real hardware testing replaces it.
+  // below needs to read from it. Only rendered/usable when dataSource ===
+  // "demo"; remove this whole hook + the UI block at the bottom of this
+  // file once real hardware testing fully replaces the simulation.
   const sim = useDummySimulation();
+
+  // If the user flips to live mode while a simulation is running, stop it —
+  // the panel/button that would normally stop it is about to disappear.
+  useEffect(() => {
+    if (isLive && sim.active) {
+      sim.stop();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive]);
 
   const selectedObject = selectedId ? getObject(selectedId) : null;
   const hasExistingReport = selectedId ? !!getReport(selectedId) : false;
@@ -101,8 +114,6 @@ function Dashboard() {
               return;
             }
 
-            // Build a precise, register-by-register message so the person
-            // can see exactly what failed rather than a generic error.
             const failedDefaults = [
               ...(data.currentMeterDefaults ?? []),
               ...(data.voltageMeterDefaults ?? []),
@@ -129,7 +140,6 @@ function Dashboard() {
           });
       }
     } else {
-      // Selection was cleared — clear any stale error along with it.
       setSetpointError(null);
     }
   };
@@ -137,9 +147,10 @@ function Dashboard() {
   const doSave = (status: "passed" | "failed") => {
     if (!selectedId) return;
 
-    // Sim-aware: if a simulation run has data, that takes priority over
-    // whatever's in raw/analysis (which will be empty in dummy mode).
-    const usingSim = sim.points.length > 0;
+    // Only ever prefer sim data in demo mode. Gating on isLive (not just
+    // sim.points.length) means a leftover simulation run from before you
+    // switched to live can never silently get saved over a real test.
+    const usingSim = !isLive && sim.points.length > 0;
 
     saveReport({
       objectId: selectedId,
@@ -165,15 +176,17 @@ function Dashboard() {
     doSave(status);
   };
 
+  const showSim = !isLive && sim.active;
+
   const graphView = (
     <LinearityGraphTabs
-      points={sim.active ? sim.points : points}
-      rawPoints={sim.active ? sim.points : raw}
+      points={showSim ? sim.points : points}
+      rawPoints={showSim ? sim.points : raw}
       timeUnit={timeUnit}
       currentUnit={currentUnit}
-      peakCurrent={sim.active ? sim.peak : peakCurrent}
-      datasetLabel={sim.active ? "SIMULATED · DUMMY DATA" : datasetLabel}
-      resistance={sim.active ? sim.resistance : selectedObject?.resAtRefTemp}
+      peakCurrent={showSim ? sim.peak : peakCurrent}
+      datasetLabel={showSim ? "SIMULATED · DUMMY DATA" : datasetLabel}
+      resistance={showSim ? sim.resistance : selectedObject?.resAtRefTemp}
       inductance={selectedObject?.inductance ?? 4.49}
       ratedAcRmsCurrent={selectedObject?.ratedAcRmsCurrent ?? 171.8}
       showVoltage={showVoltage}
@@ -239,7 +252,10 @@ function Dashboard() {
 
           <TestController
             status={phase}
-            connected={connected}
+            // In demo mode there's no hardware to connect to by design, so
+            // don't show a "disconnected" state for it — only report the
+            // real connection status when we're actually meant to be live.
+            connected={isLive ? connected : true}
             timeUnit={timeUnit}
             currentUnit={currentUnit}
             onClear={reset}
@@ -273,36 +289,39 @@ function Dashboard() {
             {graphView}
           </motion.div>
 
-          {/* DUMMY SIMULATION PANEL — remove this whole block (and the
-             useDummySimulation hook + all sim.* references above) once
-             real hardware testing replaces the simulation. */}
-          <div className="panel flex flex-wrap items-center justify-between gap-4 p-4">
-            <div className="font-mono text-[11px] text-muted-foreground">
-              Dummy Mode · R (Ω):{" "}
-              <input
-                type="number" step="0.001" value={sim.resistance}
-                onChange={(e) => sim.setResistance(parseFloat(e.target.value) || 0)}
-                className="w-24 rounded-sm border border-border bg-card px-2 py-1 text-foreground"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={sim.active ? sim.stop : sim.start}
-                className="rounded-md bg-[var(--current)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110"
-              >
-                {sim.active ? "Stop Simulation" : "Start Simulation"}
-              </button>
-              {sim.points.length > 0 && (
+          {/* DUMMY SIMULATION PANEL — only shown in demo mode. Remove this
+             whole block (and the useDummySimulation hook + all sim.*
+             references above) once real hardware testing fully replaces
+             the simulation. */}
+          {!isLive && (
+            <div className="panel flex flex-wrap items-center justify-between gap-4 p-4">
+              <div className="font-mono text-[11px] text-muted-foreground">
+                Dummy Mode · R (Ω):{" "}
+                <input
+                  type="number" step="0.001" value={sim.resistance}
+                  onChange={(e) => sim.setResistance(parseFloat(e.target.value) || 0)}
+                  className="w-24 rounded-sm border border-border bg-card px-2 py-1 text-foreground"
+                />
+              </div>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => selectedId && setPendingPassFail(true)}
-                  disabled={!selectedId}
-                  className="rounded-md bg-[var(--ok)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110 disabled:opacity-40"
+                  onClick={sim.active ? sim.stop : sim.start}
+                  className="rounded-md bg-[var(--current)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110"
                 >
-                  Save Simulation
+                  {sim.active ? "Stop Simulation" : "Start Simulation"}
                 </button>
-              )}
+                {sim.points.length > 0 && (
+                  <button
+                    onClick={() => selectedId && setPendingPassFail(true)}
+                    disabled={!selectedId}
+                    className="rounded-md bg-[var(--ok)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110 disabled:opacity-40"
+                  >
+                    Save Simulation
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="pt-1 text-center font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
             © {new Date().getFullYear()} ELECTROSOFT AUTOMATION · RLTS v2.2

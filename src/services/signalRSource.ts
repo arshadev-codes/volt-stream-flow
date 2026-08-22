@@ -1,6 +1,31 @@
 import * as signalR from "@microsoft/signalr";
 import type { RawPoint, InterlockStatus } from "@/types/sample";
-import type { ReactorHandler, ReactorPhaseRuntime, ReactorSource } from "./reactorSimulation";
+
+export type ReactorPhaseRuntime = "idle" | "ramp_up" | "decay" | "completed";
+
+export interface SourceEvent {
+  batch: (RawPoint & { peak?: number })[];
+  phase: ReactorPhaseRuntime;
+  reset?: boolean;
+  finalPeak?: number;
+  /** Why the backend aborted the test ("ACB_TRIP" / "DC_TRIP"). Previously
+   *  this was received from the backend and silently dropped — now it's
+   *  forwarded alongside finalPeak on the completed event. */
+  abortReason?: string;
+  /** Set when the backend's DAQ acquisition loop faults (e.g. USB
+   *  unplugged mid-test) — a plain-language reason for display. */
+  hardwareFault?: string;
+  /** True on the event that follows a fault once acquisition recovers. */
+  hardwareRecovered?: boolean;
+  interlock?: InterlockStatus;
+}
+
+export type ReactorHandler = (event: SourceEvent) => void;
+
+export interface ReactorSource {
+  subscribe(handler: ReactorHandler): () => void;
+  triggerDecay(): void;
+}
 
 export interface HardwareSource extends ReactorSource {
   connect(): Promise<void>;
@@ -66,14 +91,24 @@ export function createSignalRSource(config: SignalRSourceConfig): HardwareSource
 
       connection.on("TestAborted", (payload: { peak: number; reason: string }) => {
         phase = "completed";
-        handler({ batch: [], phase: "completed", finalPeak: payload?.peak });
+        handler({
+          batch: [],
+          phase: "completed",
+          finalPeak: payload?.peak,
+          abortReason: payload?.reason,
+        });
       });
 
       connection.on("InterlockStatus", (status: InterlockStatus) => {
-        // Interlock updates are infrequent (only sent on change) and are
-        // safety-relevant, so we push them straight through rather than
-        // waiting for the next animation-frame batch flush.
         handler({ batch: [], phase, interlock: status });
+      });
+
+      connection.on("HardwareFault", (payload: { message?: string }) => {
+        handler({ batch: [], phase, hardwareFault: payload?.message ?? "Hardware connection lost." });
+      });
+
+      connection.on("HardwareRecovered", () => {
+        handler({ batch: [], phase, hardwareRecovered: true });
       });
 
       flushHandle = requestAnimationFrame(flush);
@@ -85,6 +120,8 @@ export function createSignalRSource(config: SignalRSourceConfig): HardwareSource
         connection.off("TestStopped");
         connection.off("TestAborted");
         connection.off("InterlockStatus");
+        connection.off("HardwareFault");
+        connection.off("HardwareRecovered");
       };
     },
   };

@@ -44,14 +44,17 @@ import { Buffer } from "buffer";
  *     how many graphs are selected.
  *   - showBreakPoint: toggles the "Break" dot + label on the raw-waveform
  *     and log charts (existing tauCalculation.ts noise-break marker).
- *   - showSteadyState: toggles a dashed vertical reference line + label
- *     on the same two charts, at calc.timeToSteadyState. NOTE: under the
- *     currently-active Option 1 in computeReportFields() below,
- *     timeToSteadyState is literally the Break point's timestamp, so
- *     with both toggles on the two markers will currently coincide. They
- *     are independent toggles/rendering paths on purpose, so flipping
- *     computeReportFields() back to the Option 2 (5*tau) formula later
- *     will make them diverge without any further changes here.
+ *   - showSteadyState: toggles a dashed HORIZONTAL reference line at the
+ *     current level reached at calc.timeToSteadyState, matching the
+ *     threshold-line style already used elsewhere in the app (NOT a
+ *     vertical time marker — that was wrong in an earlier pass of this
+ *     file). The current level is looked up via findCurrentAtTimestamp()
+ *     below. Under the currently-active Option 1 in computeReportFields(),
+ *     timeToSteadyState is literally the Break point's timestamp, so with
+ *     both toggles on, the line will currently pass right through the
+ *     Break dot. They're independent rendering paths on purpose, so
+ *     flipping computeReportFields() back to the Option 2 (5*tau) formula
+ *     later will make them diverge without any further changes here.
  * exportReportPdf() defaults to DEFAULT_REPORT_OPTIONS (all 4 graphs,
  * both markers on) if no options are passed, so existing call sites that
  * don't yet pass a 4th argument keep working unchanged.
@@ -374,10 +377,16 @@ function fmtEngineering(n: number | undefined, unit: string, decimals = 2): stri
   return `${n.toFixed(decimals)} ${unit}`;
 }
 
-/** Units that have a real symbol get substituted here (Ohm -> Ω, C -> °C).
- *  Everything else prints as-is (V, Hz, A, H, PU, ...). */
+/** Units that have a real symbol get substituted here. Only "C" -> "°C"
+ *  is safe to substitute: the degree sign (U+00B0) is part of the
+ *  WinAnsiEncoding that react-pdf's built-in "Helvetica" font uses, so it
+ *  always renders correctly. The Ohm symbol (Greek Omega, U+03A9) is NOT
+ *  in that encoding — printing it with the built-in font silently
+ *  produces a blank/wrong glyph. Rendering Ω correctly would require
+ *  Font.register()-ing a Unicode TTF (e.g. from Google Fonts) instead of
+ *  relying on the base14 Helvetica, which isn't done here to avoid a new
+ *  network/font dependency — so Ohm stays spelled out as text. */
 const UNIT_SYMBOLS: Record<string, string> = {
-  Ohm: "\u03A9", // Ω
   C: "\u00B0C", // °C
 };
 function unitSymbol(unit: string): string {
@@ -558,6 +567,26 @@ function computeReportFields(object: TestObject, report: TestReport): ComputedFi
  */
 function computeDecayDuration(report: TestReport, calc: ComputedFields): number {
   return Math.max(report.durationS - calc.peakDc.timeSec, 0);
+}
+
+/** Linear-interpolation lookup for the current value at a given timestamp
+ *  (ms) within a RawPoint[] series — same technique as
+ *  computeVoltageAtTimestamp() in reactorCalcs.ts, but for current, since
+ *  no equivalent helper exists there yet. Used to find the current level
+ *  for the "Steady State" horizontal reference line (see ChartCard). */
+function findCurrentAtTimestamp(points: RawPoint[], timestampMs: number): number | null {
+  if (!points.length) return null;
+  if (timestampMs <= points[0].timestamp) return points[0].current;
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].timestamp >= timestampMs) {
+      const p0 = points[i - 1];
+      const p1 = points[i];
+      const span = p1.timestamp - p0.timestamp || 1;
+      const frac = (timestampMs - p0.timestamp) / span;
+      return p0.current + (p1.current - p0.current) * frac;
+    }
+  }
+  return points[points.length - 1].current;
 }
 
 /**
@@ -784,10 +813,16 @@ function ReportDocument({
   const calc = computeReportFields(object, report);
   const conclusion = buildConclusion(object, report, calc);
 
-  // Steady-state marker timestamp, in ms (same units as RawPoint.timestamp),
-  // matching calc.timeToSteadyState (seconds). Passed down to StackedGraphs
-  // so it can draw the "Steady State" reference line when the option is on.
+  // "Steady State" line — a HORIZONTAL reference line at the current
+  // level reached at calc.timeToSteadyState (matches the threshold-line
+  // style already used elsewhere in the app; NOT a vertical time marker).
+  // Looked up from the actual recorded/analyzed points, not assumed to
+  // equal the Break point's current, so this stays correct even if
+  // computeReportFields() is later switched to the Option 2 (5*tau)
+  // formula for timeToSteadyState.
   const steadyStateTimestampMs = calc.timeToSteadyState * 1000;
+  const steadyStateCurrent =
+    calc.timeToSteadyState > 0 ? findCurrentAtTimestamp(graphPoints, steadyStateTimestampMs) : null;
 
   const decayDuration = computeDecayDuration(report, calc);
   const npRows = buildNameplateRows(object, calc);
@@ -826,7 +861,7 @@ function ReportDocument({
           inductance={object.inductance}
           ratedAcRmsCurrent={object.ratedAcRmsCurrent}
           options={options}
-          steadyStateTimestampMs={steadyStateTimestampMs}
+          steadyStateCurrent={steadyStateCurrent}
         />
 
         <SectionTitle >
@@ -949,7 +984,9 @@ function SampleTable({ points }: { points: RawPoint[] }) {
 /* ============================== CHARTS ============================== */
 
 const CHART_W = 515;
-const PAD = { l: 48, r: 24, t: 16, b: 30 };
+// Trimmed from { l:48, r:24, t:16, b:30 } — was leaving noticeable dead
+// space at the top/bottom of every GraphCard box.
+const PAD = { l: 48, r: 24, t: 13, b: 24 };
 
 function downsampleRaw<T extends { timestamp: number }>(points: T[], target = 600): T[] {
   if (points.length <= target) return points;
@@ -963,18 +1000,21 @@ function downsampleRaw<T extends { timestamp: number }>(points: T[], target = 60
 interface BreakMarker { timestamp: number; current: number; }
 
 function GraphCard({
-  title, subtitle, children,
-}: { title: string; subtitle?: string; children: ReactNode }) {
+  title, subtitle, children, accent = C.lineDark,
+}: { title: string; subtitle?: string; children: ReactNode; accent?: string }) {
   return (
-    <View style={[s.card, { padding: 12, marginBottom: 14 }]} wrap={false}>
-      {/* letterSpacing pulled way in from 1.4 -> 0.3 per spec ("reduce the
-          letter spacing from the graph name") — was reading as unusually
-          wide/spaced-out compared to the rest of the report's headings. */}
-      <Text style={{ fontSize: 8, fontFamily: FONT_BOLD, color: C.ink, letterSpacing: 0.3, marginBottom: subtitle ? 2 : 8 }}>
+    // Box shrunk (padding 12->9, marginBottom 14->9) — was leaving each
+    // graph noticeably taller than it needed to be, which was both the
+    // "unnecessarily big box" complaint and the reason 2-graph reports
+    // pushed Approval & Sign-Off onto the next page. A colored top
+    // border (matching each chart's line color) replaces the plain grey
+    // one for a bit more visual polish.
+    <View style={[s.card, { padding: 9, marginBottom: 9, borderTopWidth: 2.5, borderTopColor: accent }]} wrap={false}>
+      <Text style={{ fontSize: 8, fontFamily: FONT_BOLD, color: C.ink, letterSpacing: 0.3, marginBottom: subtitle ? 2 : 6 }}>
         {title}
       </Text>
       {subtitle && (
-        <Text style={{ fontSize: 6.6, color: C.mute, marginBottom: 8, fontFamily: FONT_OBLIQUE }}>
+        <Text style={{ fontSize: 6.6, color: C.mute, marginBottom: 6, fontFamily: FONT_OBLIQUE }}>
           {subtitle}
         </Text>
       )}
@@ -986,16 +1026,16 @@ function GraphCard({
 /** Raw current-vs-time chart (linear or log Y). Optionally overlays:
  *   - the "Break" marker at the point tauCalculation.ts flagged noise
  *     (dot + "Break" label), controlled by the `breakPoint` prop.
- *   - a dashed vertical "Steady State" reference line at
- *     `steadyStateTimestamp` (ms), controlled independently.
- *  The dashed horizontal "peak" reference line has been removed — the
- *  chart curve itself already shows the peak visually. */
+ *   - a dashed HORIZONTAL "Steady State" reference line at the current
+ *     level given by `steadyStateCurrent`, controlled independently —
+ *     matches the style of the threshold line already used in the app,
+ *     not a vertical time marker. */
 function ChartCard({
-  points, peak, height = 220, scale = "linear", breakPoint, steadyStateTimestamp,
+  points, peak, height = 220, scale = "linear", breakPoint, steadyStateCurrent,
 }: {
   points: RawPoint[]; peak: number; height?: number;
   scale?: "linear" | "log"; breakPoint?: BreakMarker | null;
-  steadyStateTimestamp?: number | null;
+  steadyStateCurrent?: number | null;
 }) {
   const CHART_H = height;
 
@@ -1057,11 +1097,12 @@ function ChartCard({
   const breakX = breakVisible ? sx(breakPoint!.timestamp) : 0;
   const breakY = breakVisible ? syI(clampY(breakPoint!.current)) : 0;
 
-  const steadyVisible =
-    steadyStateTimestamp != null &&
-    steadyStateTimestamp >= tMin &&
-    steadyStateTimestamp <= tMax;
-  const steadyX = steadyVisible ? sx(steadyStateTimestamp!) : 0;
+  const steadyVisible = steadyStateCurrent != null && Number.isFinite(steadyStateCurrent);
+  const steadyYRaw = steadyVisible ? syI(clampY(steadyStateCurrent!)) : 0;
+  // Clamp to the plot area — a steady-state current outside the visible
+  // range (e.g. slightly above iMax's headroom) should still draw at the
+  // edge rather than disappear or poke out of the chart box.
+  const steadyY = Math.min(Math.max(steadyYRaw, PAD.t), PAD.t + innerH);
 
   return (
     <View>
@@ -1085,8 +1126,8 @@ function ChartCard({
 
         {steadyVisible && (
           <Line
-            x1={steadyX} y1={PAD.t} x2={steadyX} y2={PAD.t + innerH}
-            stroke={C.success} strokeWidth={1} strokeDasharray="3,2"
+            x1={PAD.l} y1={steadyY} x2={PAD.l + innerW} y2={steadyY}
+            stroke={C.success} strokeWidth={0.9} strokeDasharray="4,2"
           />
         )}
 
@@ -1136,9 +1177,10 @@ function ChartCard({
         <Text
           style={{
             position: "absolute",
-            left: Math.min(steadyX + 3, PAD.l + innerW - 46),
-            top: PAD.t + 2,
-            fontSize: 6.2, color: C.success, fontFamily: FONT_BOLD,
+            left: PAD.l + innerW - 70,
+            top: steadyY - 8,
+            width: 70,
+            fontSize: 6.2, color: C.success, fontFamily: FONT_BOLD, textAlign: "right",
           }}
         >
           Steady State
@@ -1241,16 +1283,20 @@ function FluxTimeChart({
 /** Flux Curve (Linear) — per-unit magnetic characteristic, plots
  *  computeMagneticCharacteristicPu() output (CurrentPu, FluxPU) exactly
  *  as computed. Since this comes from the tau-locked decay-only window,
- *  current is already monotonic (no rise-phase samples), so no binning
- *  or zigzag correction is needed.
+ *  current is already monotonic, so no binning/zigzag correction is
+ *  needed for the curve itself — but the ARRAY ORDER follows the decay
+ *  in time, i.e. index 0 = peak (highest current/flux), last index =
+ *  near-zero (end of decay). That matters for the "t" arrow below.
  *
- *  Matches the IEC 60076-6 reference figure by adding a small arrow +
- *  italic "t" label pointing at the tail end of the curve (indicating
- *  the direction of increasing time along the curve). The arrow is a
- *  short line + two-stroke arrowhead drawn in SVG space, anchored to
- *  the last plotted point; the "t" is an absolutely-positioned <Text>
- *  next to the arrow's tail, same technique used for axis tick labels
- *  elsewhere in this file. */
+ *  Matches the IEC 60076-6 reference figure via a small arrow + italic
+ *  "t" label. Earlier version of this anchored the arrow to
+ *  `puData[last]` assuming that was the curve's high end — but because
+ *  of the decay ordering above, that's actually the near-origin point,
+ *  which is why the arrow rendered at the wrong end. Fixed by anchoring
+ *  to whichever point has the MAX CurrentPu (found by value, not index),
+ *  and by computing the arrowhead's two ticks from the actual
+ *  tail->head direction vector instead of hardcoded signs (the old
+ *  hardcoded ticks pointed backwards regardless of anchor position). */
 function FluxCurrentChart({
   puData, height = 220,
 }: { puData: { CurrentPu: number; FluxPU: number }[]; height?: number }) {
@@ -1270,8 +1316,13 @@ function FluxCurrentChart({
   const xMax = Math.max(...xVals) * 1.1 || 1;
   const yMax = Math.max(...yVals) * 1.1 || 1;
 
+  // Extra bottom room for the "CURRENT (p.u.)" axis caption + extra top
+  // room for the "LINKED FLUX (p.u.)" corner label, on top of the usual
+  // PAD.t/PAD.b — this chart is drawn ~15px taller than the other three
+  // (see the `height` passed to it in StackedGraphs) to fit both without
+  // crowding the tick labels.
   const innerW = CHART_W - PAD.l - PAD.r;
-  const innerH = CHART_H - PAD.t - PAD.b;
+  const innerH = CHART_H - PAD.t - PAD.b - 12;
   const sx = (v: number) => PAD.l + ((v - xMin) / (xMax - xMin || 1)) * innerW;
   const sy = (v: number) => PAD.t + innerH - (v / yMax) * innerH;
 
@@ -1286,12 +1337,36 @@ function FluxCurrentChart({
   const yTicks = Array.from({ length: 6 }, (_, i) => (yMax * (5 - i)) / 5);
   const xTicks = Array.from({ length: 7 }, (_, i) => xMin + ((xMax - xMin) * i) / 6);
 
-  // Arrow + "t" annotation, anchored to the last plotted point.
-  const lastPt = puData[puData.length - 1];
-  const arrowHeadX = sx(lastPt.CurrentPu);
-  const arrowHeadY = sy(lastPt.FluxPU);
-  const arrowTailX = Math.min(arrowHeadX + 26, PAD.l + innerW - 6);
-  const arrowTailY = Math.max(arrowHeadY - 24, PAD.t + 12);
+  // Anchor the arrow to the point with the highest CurrentPu, found by
+  // VALUE — not puData[0] or puData[length-1], since the decay-ordered
+  // array could put that point at either end depending on the run.
+  const anchorPt = puData.reduce((max, p) => (p.CurrentPu > max.CurrentPu ? p : max), puData[0]);
+  const anchorX = sx(anchorPt.CurrentPu);
+  const anchorY = sy(anchorPt.FluxPU);
+  // Tail sits up-and-left of the anchor so the arrow reads "into" the
+  // curve from open chart space, mirroring the IEC reference figure,
+  // and clamped so it never leaves the plot box even when the anchor
+  // itself is near a corner.
+  const arrowTailX = Math.max(anchorX - 34, PAD.l + 8);
+  const arrowTailY = Math.max(anchorY - 22, PAD.t + 12);
+
+  // Arrowhead ticks computed from the real tail->head direction vector
+  // (rotated ±25°) instead of hardcoded signs, so they always point
+  // backward along the line regardless of where the anchor lands.
+  const dx = anchorX - arrowTailX;
+  const dy = anchorY - arrowTailY;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const backX = -dx / len;
+  const backY = -dy / len;
+  const rotate = (vx: number, vy: number, deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    return [vx * Math.cos(a) - vy * Math.sin(a), vx * Math.sin(a) + vy * Math.cos(a)];
+  };
+  const headLen = 5.5;
+  const [t1x, t1y] = rotate(backX, backY, 24);
+  const [t2x, t2y] = rotate(backX, backY, -24);
+  const tick1 = `${(anchorX + t1x * headLen).toFixed(1)},${(anchorY + t1y * headLen).toFixed(1)}`;
+  const tick2 = `${(anchorX + t2x * headLen).toFixed(1)},${(anchorY + t2y * headLen).toFixed(1)}`;
 
   return (
     <View>
@@ -1313,15 +1388,11 @@ function FluxCurrentChart({
         <Path d={areaPath} fill="url(#flux-fill-i)" />
         <Path d={path} stroke={C.voltage} strokeWidth={1.6} fill="none" />
 
-        {/* "t" direction arrow, pointing from the tail anchor into the
-            curve's end point — mirrors the IEC reference figure. */}
-        <Line
-          x1={arrowTailX} y1={arrowTailY}
-          x2={arrowHeadX + 3} y2={arrowHeadY - 3}
-          stroke={C.ink} strokeWidth={0.8}
-        />
+        {/* "t" direction arrow, anchored at the curve's peak/high-value
+            point — mirrors the IEC reference figure. */}
+        <Line x1={arrowTailX} y1={arrowTailY} x2={anchorX} y2={anchorY} stroke={C.ink} strokeWidth={0.8} />
         <Path
-          d={`M${arrowHeadX + 3},${arrowHeadY - 3} l-5,-1.4 M${arrowHeadX + 3},${arrowHeadY - 3} l-1.4,-5`}
+          d={`M${anchorX.toFixed(1)},${anchorY.toFixed(1)} L${tick1} M${anchorX.toFixed(1)},${anchorY.toFixed(1)} L${tick2}`}
           stroke={C.ink} strokeWidth={0.8} fill="none"
         />
 
@@ -1361,6 +1432,24 @@ function FluxCurrentChart({
       >
         t
       </Text>
+
+      {/* Axis captions, matching the IEC reference figure's labeled axes. */}
+      <Text
+        style={{
+          position: "absolute", left: PAD.l, top: PAD.t + innerH + 16, width: innerW,
+          textAlign: "center", fontSize: 6.4, color: C.mute, fontFamily: FONT_BOLD, letterSpacing: 0.6,
+        }}
+      >
+        CURRENT (p.u.)
+      </Text>
+      <Text
+        style={{
+          position: "absolute", left: PAD.l, top: PAD.t - 11,
+          fontSize: 6.2, color: C.mute, fontFamily: FONT_BOLD, letterSpacing: 0.6,
+        }}
+      >
+        LINKED FLUX (p.u.)
+      </Text>
     </View>
   );
 }
@@ -1384,12 +1473,12 @@ function FluxCurrentChart({
  *  Approval & Sign-Off is rendered by the caller directly below this
  *  component, on the same page. */
 function StackedGraphs({
-  points, peak, resistance, inductance, ratedAcRmsCurrent, options, steadyStateTimestampMs,
+  points, peak, resistance, inductance, ratedAcRmsCurrent, options, steadyStateCurrent,
 }: {
   points: RawPoint[]; peak: number;
   resistance?: number; inductance?: number; ratedAcRmsCurrent?: number;
   options: ReportOptions;
-  steadyStateTimestampMs?: number;
+  steadyStateCurrent?: number | null;
 }) {
   if (points.length < 2) {
     return (
@@ -1425,32 +1514,36 @@ function StackedGraphs({
   const puUnavailable = !inductance || !ratedAcRmsCurrent || puData.length < 2;
 
   const breakPointForCharts = showBreakPoint ? analyzed.breakPoint : null;
-  const steadyStateForCharts = showSteadyState ? steadyStateTimestampMs ?? null : null;
+  const steadyStateForCharts = showSteadyState ? steadyStateCurrent ?? null : null;
 
+  // Heights trimmed from a flat 220 -> 195 (210 for the flux-curve chart,
+  // which needs a little extra room for its two axis captions) — shaves
+  // real height off every box on the page, which is what let a 2-graph
+  // selection fit Approval & Sign-Off on the same page again.
   return (
     <View>
       {graphs.rawWaveform && (
-        <GraphCard title=" Graph Of the charge and discharge current">
+        <GraphCard title=" Graph Of the charge and discharge current" accent={C.current}>
           <ChartCard
             points={analyzed.rawDisplay}
             peak={peak}
-            height={220}
+            height={195}
             scale="linear"
             breakPoint={breakPointForCharts}
-            steadyStateTimestamp={steadyStateForCharts}
+            steadyStateCurrent={steadyStateForCharts}
           />
         </GraphCard>
       )}
 
       {graphs.rawWaveformLog && (
-        <GraphCard title="Graph Of the discharge current With logarithmic current scaling">
+        <GraphCard title="Graph Of the discharge current With logarithmic current scaling" accent={C.current}>
           <ChartCard
             points={dischargeOnly}
             peak={peak}
-            height={220}
+            height={195}
             scale="log"
             breakPoint={breakPointForCharts}
-            steadyStateTimestamp={steadyStateForCharts}
+            steadyStateCurrent={steadyStateForCharts}
           />
         </GraphCard>
       )}
@@ -1458,22 +1551,24 @@ function StackedGraphs({
       {graphs.fluxTime && (
         <GraphCard
           title=" Calculated linked flux during discharge period"
+          accent={C.voltage}
           subtitle={fluxUnavailable
             ? "Resistance not set on this object, or tau never locked — flux curve is empty."
             : undefined}
         >
-          <FluxTimeChart fluxData={analyzed.fluxData} height={220} />
+          <FluxTimeChart fluxData={analyzed.fluxData} height={195} />
         </GraphCard>
       )}
 
       {graphs.fluxCurve && (
         <GraphCard
           title="Magnetic characteristic"
+          accent={C.voltage}
           subtitle={puUnavailable
             ? "Inductance or rated AC RMS current not set on this object — per-unit curve is empty."
             : undefined}
         >
-          <FluxCurrentChart puData={puData} height={220} />
+          <FluxCurrentChart puData={puData} height={210} />
         </GraphCard>
       )}
     </View>

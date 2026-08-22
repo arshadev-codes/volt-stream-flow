@@ -10,10 +10,16 @@ interface Props {
   currentUnit: CurrentUnit;
   resistance?: number;
   scale: "linear" | "log";
-  puData?:MagneticCharacteristicsPoint[];
+  puData?: MagneticCharacteristicsPoint[];
+  /** Locked time constant from createAnalyzedSample() — null means tau never
+   *  locked (not a clean exponential decay), distinct from "no data yet". */
+  tau?: number | null;
+  /** Whether any raw samples were captured at all, regardless of whether
+   *  tau locked onto them. */
+  hasRawSamples?: boolean;
 }
 
-export function FluxCurveGraph({ fluxData, currentUnit, resistance, scale, puData }: Props) {
+export function FluxCurveGraph({ fluxData, currentUnit, resistance, scale, puData, tau, hasRawSamples }: Props) {
   const iLabel = currentUnitLabel(currentUnit);
   const isPu = !!puData && puData.length >= 2;
 
@@ -42,9 +48,13 @@ export function FluxCurveGraph({ fluxData, currentUnit, resistance, scale, puDat
   }
 
   if (data.length < 2) {
+    const message = hasRawSamples && tau === null
+      ? "Tau did not lock — this doesn't look like a clean exponential decay. Check the reactor is connected, or review the raw waveform tab."
+      : "No data captured yet.";
+
     return (
       <div className="flex h-[460px] w-full items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
-        No data captured yet.
+        {message}
       </div>
     );
   }

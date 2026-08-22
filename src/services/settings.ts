@@ -1,7 +1,5 @@
 /**
  * App-wide user settings (persisted in localStorage).
- * Currently exposes the "store raw data" toggle which controls whether
- * the high-frequency raw 0.25 ms stream is persisted with each report.
  */
 
 const KEY = "esa.settings.v1";
@@ -11,11 +9,16 @@ export interface AppSettings {
   /** Multiplier used in Idc-for-linearity-test calc (Idc = ratedAcRmsCurrent × currentMultiplier × √2).
    *  Locked at 1.5 (the standard value) by default in the UI — user can unlock and override. */
   currentMultiplier: number;
+  /** "live" connects to the real test bench over SignalR and hides the demo panel.
+   *  "demo" runs the simulation panel and skips the SignalR connection entirely.
+   *  Defaults to "live" to match the app's original always-connect behavior. */
+  dataSource: "live" | "demo";
 }
 
 const DEFAULTS: AppSettings = {
   storeRawData: false,
   currentMultiplier: 1.5,
+  dataSource: "live",
 };
 
 type Listener = (s: AppSettings) => void;

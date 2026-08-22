@@ -46,6 +46,12 @@ export function LinearityGraphTabs({
 
   const dischargeDisplay = analyzed.rawDisplay.filter((p) => p.timestamp >= 0);
 
+  // Distinguishes "genuinely no raw samples yet" from "samples exist but tau
+  // never locked" (step response / sudden change, not a clean RL decay) —
+  // the flux graphs need this to show the right empty-state message instead
+  // of a misleading "No data captured yet." when data plainly was captured.
+  const hasRawSamples = points.length > 0;
+
   return (
     <Tabs defaultValue="raw" className="w-full">
       <TabsList className="mb-3">
@@ -74,11 +80,18 @@ export function LinearityGraphTabs({
       </TabsContent>
 
       <TabsContent value="flux-time">
-        <FluxTimeGraph fluxData={analyzed.fluxData} timeUnit={timeUnit} resistance={resistance} />
+        <FluxTimeGraph
+          fluxData={analyzed.fluxData} timeUnit={timeUnit} resistance={resistance}
+          tau={analyzed.tau} hasRawSamples={hasRawSamples}
+        />
       </TabsContent>
 
       <TabsContent value="flux-linear">
-        <FluxCurveGraph fluxData={analyzed.fluxData} currentUnit={currentUnit} resistance={resistance} scale="linear" puData={puData} />
+        <FluxCurveGraph
+          fluxData={analyzed.fluxData} currentUnit={currentUnit} resistance={resistance}
+          scale="linear" puData={puData}
+          tau={analyzed.tau} hasRawSamples={hasRawSamples}
+        />
       </TabsContent>
     </Tabs>
   );

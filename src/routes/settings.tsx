@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Settings as SettingsIcon, Database, Info, Lock, Unlock } from "lucide-react";
+import { Settings as SettingsIcon, Database, Info, Lock, Unlock, Radio } from "lucide-react";
 import { BrandHeader } from "@/components/BrandHeader";
 import { useTheme } from "@/hooks/useTheme";
 import { useSettings } from "@/hooks/useSettings";
@@ -45,6 +45,39 @@ function SettingsPage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.05 }}
+          className="panel p-6"
+        >
+          <div className="mb-4 flex items-center gap-2 font-display text-xs font-bold uppercase tracking-[0.25em] text-muted-foreground">
+            <Radio className="h-4 w-4 text-amber-500" />
+            Test Mode
+          </div>
+
+          <label className="group flex cursor-pointer items-start justify-between gap-6 rounded-md border border-border bg-card p-5 transition hover:border-amber-500/40">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-foreground">Live Hardware Mode</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                When enabled, the dashboard connects to the real test bench over SignalR and starts
+                listening for live data immediately — the demo simulation panel is hidden. When
+                disabled, the dashboard runs in demo mode with the simulation panel and no hardware
+                connection is attempted.
+              </div>
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-sm border border-border bg-background px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <Info className="h-3 w-3" />
+                Current: {settings.dataSource === "live" ? "Live Hardware" : "Demo Simulation"}
+              </div>
+            </div>
+
+            <Toggle
+              checked={settings.dataSource === "live"}
+              onChange={(v) => update({ dataSource: v ? "live" : "demo" })}
+            />
+          </label>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.08 }}
           className="panel p-6"
         >
           <div className="mb-4 flex items-center gap-2 font-display text-xs font-bold uppercase tracking-[0.25em] text-muted-foreground">

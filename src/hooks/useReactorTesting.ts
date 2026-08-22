@@ -1,9 +1,11 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import type { RawPoint, ReactorPhase, InterlockStatus } from "@/types/sample";
-import { createSignalRSource, type HardwareSource } from "@/services/signalRSource";
+import {
+  subscribeReactorEvents,
+  subscribeReactorConnected,
+  isReactorConnected,
+} from "@/services/reactorConnectionManager";
 import { analyzeRaw } from "@/services/analysis";
-
-const HUB_URL = "https://localhost:7115/hubs/linearity";
 
 const DEFAULT_INTERLOCK: InterlockStatus = {
   acbOn: false,
@@ -17,11 +19,13 @@ export function useReactorTesting() {
   const [raw, setRaw] = useState<RawPoint[]>([]);
   const [analysis, setAnalysis] = useState<RawPoint[]>([]);
   const [phase, setPhase] = useState<ReactorPhase>("idle");
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(isReactorConnected());
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [duration, setDuration] = useState(0);
   const [peakCurrent, setPeakCurrent] = useState(0);
   const [interlock, setInterlock] = useState<InterlockStatus>(DEFAULT_INTERLOCK);
+  const [abortReason, setAbortReason] = useState<string | null>(null);
+  const [hardwareFault, setHardwareFault] = useState<string | null>(null);
 
   const rawRef = useRef<RawPoint[]>([]);
   const peakRef = useRef(0);
@@ -35,14 +39,20 @@ export function useReactorTesting() {
     setStartedAt(null);
     setPeakCurrent(0);
     setPhase("idle");
+    setAbortReason(null);
   }, []);
 
   useEffect(() => {
-    const src: HardwareSource = createSignalRSource({ hubUrl: HUB_URL });
-
-    const unsub = src.subscribe((e) => {
+    const unsubEvents = subscribeReactorEvents((e) => {
       if (e.interlock) {
         setInterlock(e.interlock);
+      }
+
+      if (e.hardwareFault) {
+        setHardwareFault(e.hardwareFault);
+      }
+      if (e.hardwareRecovered) {
+        setHardwareFault(null);
       }
 
       if (e.reset) {
@@ -54,25 +64,18 @@ export function useReactorTesting() {
         setDuration(0);
         setStartedAt(Date.now());
         setPhase("ramp_up");
+        setAbortReason(null);
         return;
       }
 
       if (e.batch.length) {
         rawRef.current = rawRef.current.concat(e.batch);
 
-        // Pinpoint accurate peak: scan EVERY sample in the batch, not just
-        // the last one. A 100ms batch (~500 samples at 5kHz) can easily
-        // have its true peak mid-batch rather than at the final sample —
-        // relying on just the last point's `peak` field misses that.
         let batchMax = peakRef.current;
         for (const p of e.batch as RawPoint[]) {
           if (p.current > batchMax) batchMax = p.current;
         }
 
-        // Cross-check against the backend's own running peak (sent on the
-        // last sample of the batch) in case it disagrees — take whichever
-        // is higher, since either source undercounting means we lose the
-        // true peak.
         const last = e.batch[e.batch.length - 1] as RawPoint & { peak?: number };
         if (typeof last.peak === "number" && last.peak > batchMax) {
           batchMax = last.peak;
@@ -90,24 +93,24 @@ export function useReactorTesting() {
         setPhase("completed");
         setAnalysis(analyzeRaw(rawRef.current));
 
-        // Final cross-check against the backend's finalPeak, in case the
-        // true peak occurred in a sample that was never batched (e.g. right
-        // at test-abort boundary).
         if (typeof e.finalPeak === "number" && e.finalPeak > peakRef.current) {
           peakRef.current = e.finalPeak;
           setPeakCurrent(e.finalPeak);
         }
+
+        // Only a real interlock trip carries a reason — a normal
+        // TestStopped completion leaves this null.
+        if (e.abortReason) {
+          setAbortReason(e.abortReason);
+        }
       }
     });
 
-    src
-      .connect()
-      .then(() => setConnected(true))
-      .catch(() => setConnected(false));
+    const unsubConnected = subscribeReactorConnected(setConnected);
 
     return () => {
-      unsub();
-      src.disconnect();
+      unsubEvents();
+      unsubConnected();
     };
   }, []);
 
@@ -126,6 +129,8 @@ export function useReactorTesting() {
     peakCurrent,
     totalSamples: raw.length,
     interlock,
+    abortReason,
+    hardwareFault,
     reset,
   };
 }

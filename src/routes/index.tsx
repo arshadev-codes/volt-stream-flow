@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { Gauge, Maximize2, AlertTriangle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Gauge, Maximize2, AlertTriangle, PlugZap, Loader2 } from "lucide-react";
 import { TestController } from "@/components/TestController";
 import { InterlockStatusPanel } from "@/components/InterlockStatusPanel";
 import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
@@ -31,6 +31,19 @@ export const Route = createFileRoute("/")({
   }),
 });
 
+const ABORT_REASON_LABEL: Record<string, string> = {
+  ACB_TRIP: "ACB Trip",
+  DC_TRIP: "DC Trip",
+};
+
+interface ModbusProgress {
+  active: boolean;
+  key: string | null;
+  name: string | null;
+  attempt: number;
+  maxRetries: number;
+}
+
 function Dashboard() {
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("MS");
   const [currentUnit, setCurrentUnit] = useState<CurrentUnit>("A");
@@ -48,10 +61,47 @@ function Dashboard() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [setpointError, setSetpointError] = useState<string | null>(null);
 
+  // Polled from GET /api/prepare-test/status while a prepare-test POST is
+  // in flight, so the user sees exactly which register is being written
+  // and how many retry attempts are left, instead of a silent wait.
+  const [writeProgress, setWriteProgress] = useState<ModbusProgress | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  const startProgressPolling = () => {
+    if (pollRef.current) return; // already polling, don't stack intervals
+    pollRef.current = window.setInterval(() => {
+      fetch("http://localhost:3000/api/prepare-test/status")
+        .then((res) => res.json())
+        .then((p: ModbusProgress) => {
+          setWriteProgress(p?.active ? p : null);
+        })
+        .catch(() => {
+          // Polling failure isn't itself an error worth surfacing — the
+          // main prepare-test request's own .catch already handles that.
+        });
+    }, 250);
+  };
+
+  const stopProgressPolling = () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    setWriteProgress(null);
+  };
+
+  // Stop polling if the component unmounts mid-request.
+  useEffect(() => () => stopProgressPolling(), []);
+
   const {
     raw, analysis, phase, connected, duration,
-    latestCurrent, peakCurrent, interlock, reset,
+    latestCurrent, peakCurrent, interlock, abortReason, hardwareFault, reset,
   } = useReactorTesting();
+
+  const [abortReasonDismissed, setAbortReasonDismissed] = useState(false);
+  useEffect(() => {
+    setAbortReasonDismissed(false);
+  }, [abortReason]);
 
   // Dummy simulation state — lives here (not lower down) because doSave()
   // below needs to read from it. Only rendered/usable when dataSource ===
@@ -59,8 +109,6 @@ function Dashboard() {
   // file once real hardware testing fully replaces the simulation.
   const sim = useDummySimulation();
 
-  // If the user flips to live mode while a simulation is running, stop it —
-  // the panel/button that would normally stop it is about to disappear.
   useEffect(() => {
     if (isLive && sim.active) {
       sim.stop();
@@ -80,7 +128,6 @@ function Dashboard() {
   const fmtCurrent = (v: number) =>
     convertCurrentUnit(v, currentUnit).toFixed(currentUnit === "mA" ? 0 : 2);
 
-  // Real-hardware completion path (untouched).
   useEffect(() => {
     if (phase === "completed" && selectedId && raw.length > 0) setPendingPassFail(true);
   }, [phase, selectedId, raw.length]);
@@ -94,7 +141,8 @@ function Dashboard() {
    *
    * setpointError surfaces failures (device unreachable, write rejected,
    * server down) as a visible banner rather than only a console.error, so a
-   * failed write can't go unnoticed mid-test.
+   * failed write can't go unnoticed mid-test. writeProgress (via polling)
+   * surfaces what's happening WHILE the request is still running.
    */
   const handleSelectObject = (id: string | null) => {
     setSelectedId(id);
@@ -102,6 +150,8 @@ function Dashboard() {
     if (id) {
       const obj = getObject(id);
       if (obj?.idcForLinearityTest) {
+        startProgressPolling();
+
         fetch("http://localhost:3000/api/prepare-test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -137,19 +187,20 @@ function Dashboard() {
           })
           .catch((err) => {
             setSetpointError(`Could not reach test bench server: ${err.message}`);
+          })
+          .finally(() => {
+            stopProgressPolling();
           });
       }
     } else {
       setSetpointError(null);
+      stopProgressPolling();
     }
   };
 
   const doSave = (status: "passed" | "failed") => {
     if (!selectedId) return;
 
-    // Only ever prefer sim data in demo mode. Gating on isLive (not just
-    // sim.points.length) means a leftover simulation run from before you
-    // switched to live can never silently get saved over a real test.
     const usingSim = !isLive && sim.points.length > 0;
 
     saveReport({
@@ -222,6 +273,41 @@ function Dashboard() {
             <TestObjectSearch objects={objects} selectedId={selectedId} onSelect={handleSelectObject} />
           </div>
 
+          {/* Modbus write-in-progress banner — shows which register is being
+             written right now and how many retry attempts are left, polled
+             from the bridge server while prepare-test is in flight. */}
+          {writeProgress?.active && (
+            <div className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 font-mono text-xs text-foreground">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
+              <span>
+                Writing {writeProgress.name}... attempt {writeProgress.attempt} of {writeProgress.maxRetries}
+                {writeProgress.maxRetries - writeProgress.attempt > 0 && (
+                  <> ({writeProgress.maxRetries - writeProgress.attempt} retries left)</>
+                )}
+              </span>
+            </div>
+          )}
+
+          {isLive && hardwareFault && (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 font-mono text-xs text-destructive">
+              <PlugZap className="h-4 w-4 shrink-0" />
+              <span>Hardware connection lost: {hardwareFault} — attempting to reconnect...</span>
+            </div>
+          )}
+
+          {abortReason && !abortReasonDismissed && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 font-mono text-xs text-amber-500">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Test aborted — {ABORT_REASON_LABEL[abortReason] ?? abortReason}</span>
+              <button
+                onClick={() => setAbortReasonDismissed(true)}
+                className="ml-auto shrink-0 text-[10px] font-bold uppercase tracking-wider text-amber-500/70 hover:text-amber-500"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {setpointError && (
             <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 font-mono text-xs text-destructive">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -252,9 +338,6 @@ function Dashboard() {
 
           <TestController
             status={phase}
-            // In demo mode there's no hardware to connect to by design, so
-            // don't show a "disconnected" state for it — only report the
-            // real connection status when we're actually meant to be live.
             connected={isLive ? connected : true}
             timeUnit={timeUnit}
             currentUnit={currentUnit}
@@ -289,10 +372,6 @@ function Dashboard() {
             {graphView}
           </motion.div>
 
-          {/* DUMMY SIMULATION PANEL — only shown in demo mode. Remove this
-             whole block (and the useDummySimulation hook + all sim.*
-             references above) once real hardware testing fully replaces
-             the simulation. */}
           {!isLive && (
             <div className="panel flex flex-wrap items-center justify-between gap-4 p-4">
               <div className="font-mono text-[11px] text-muted-foreground">
@@ -333,7 +412,7 @@ function Dashboard() {
         {graphView}
       </GraphModal>
 
-      <ConfirmDialog
+      {/* <ConfirmDialog
         open={confirmOverwrite}
         title="Overwrite existing report?"
         description={
@@ -348,8 +427,8 @@ function Dashboard() {
         confirmLabel="Overwrite & Save"
         onCancel={() => { setConfirmOverwrite(false); setPendingStatus(null); }}
         onConfirm={() => pendingStatus && doSave(pendingStatus)}
-      />
-
+      /> */}
+{/* 
       {pendingPassFail && !confirmOverwrite && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 backdrop-blur-md">
           <div className="panel w-full max-w-md p-6 text-center">
@@ -364,7 +443,7 @@ function Dashboard() {
             </div>
           </div>
         </div>
-      )}
+      )} */}
     </>
   );
 }

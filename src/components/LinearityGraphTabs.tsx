@@ -55,10 +55,10 @@ export function LinearityGraphTabs({
   return (
     <Tabs defaultValue="raw" className="w-full">
       <TabsList className="mb-3">
-        <TabsTrigger value="raw" className="font-mono text-[11px] uppercase tracking-wider">Raw Waveform</TabsTrigger>
-        <TabsTrigger value="raw-log" className="font-mono text-[11px] uppercase tracking-wider">Raw Waveform (Log)</TabsTrigger>
-        <TabsTrigger value="flux-time" className="font-mono text-[11px] uppercase tracking-wider">Flux vs Time</TabsTrigger>
-        <TabsTrigger value="flux-linear" className="font-mono text-[11px] uppercase tracking-wider">Flux Curve (Linear)</TabsTrigger>
+        <TabsTrigger value="raw" className="font-mono text-[11px] uppercase tracking-wider">Time VS Current</TabsTrigger>
+        <TabsTrigger value="raw-log" className="font-mono text-[11px] uppercase tracking-wider">Logarithmic Scaling</TabsTrigger>
+        <TabsTrigger value="flux-time" className="font-mono text-[11px] uppercase tracking-wider">Flux Calculation</TabsTrigger>
+        <TabsTrigger value="flux-linear" className="font-mono text-[11px] uppercase tracking-wider">Magnetic Characteristic</TabsTrigger>
       </TabsList>
 
       <TabsContent value="raw">

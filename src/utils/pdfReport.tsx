@@ -1161,7 +1161,7 @@ function ChartCard({
         const x = Math.max(PAD.l - 6, Math.min(raw, PAD.l + innerW - 26));
         const align = i === 0 ? "left" : i === xVals.length - 1 ? "right" : "center";
         return (
-          <Text key={`xl${i}`} style={{ position: "absolute", left: x, top: PAD.t + innerH + 6, fontSize: 6.2, color: C.mute, width: 32, textAlign: align }}>
+          <Text key={`xl${i}`} style={{ position: "absolute", left: x, top: PAD.t + innerH + 14, fontSize: 6.2, color: C.mute, width: 32, textAlign: align }}>
             {v < 1000 ? `${v.toFixed(0)}ms` : `${(v / 1000).toFixed(1)}s`}
           </Text>
         );
@@ -1271,7 +1271,7 @@ function FluxTimeChart({
         const x = Math.max(PAD.l - 6, Math.min(raw, PAD.l + innerW - 26));
         const align = i === 0 ? "left" : i === xTicks.length - 1 ? "right" : "center";
         return (
-          <Text key={`xl${i}`} style={{ position: "absolute", left: x, top: PAD.t + innerH + 6, fontSize: 6.2, color: C.mute, width: 32, textAlign: align }}>
+          <Text key={`xl${i}`} style={{ position: "absolute", left: x, top: PAD.t + innerH + 14, fontSize: 6.2, color: C.mute, width: 32, textAlign: align }}>
             {v < 1000 ? `${v.toFixed(0)}ms` : `${(v / 1000).toFixed(1)}s`}
           </Text>
         );
@@ -1289,14 +1289,22 @@ function FluxTimeChart({
  *  near-zero (end of decay). That matters for the "t" arrow below.
  *
  *  Matches the IEC 60076-6 reference figure via a small arrow + italic
- *  "t" label. Earlier version of this anchored the arrow to
- *  `puData[last]` assuming that was the curve's high end — but because
- *  of the decay ordering above, that's actually the near-origin point,
- *  which is why the arrow rendered at the wrong end. Fixed by anchoring
- *  to whichever point has the MAX CurrentPu (found by value, not index),
- *  and by computing the arrowhead's two ticks from the actual
- *  tail->head direction vector instead of hardcoded signs (the old
- *  hardcoded ticks pointed backwards regardless of anchor position). */
+ *  "t" label. The arrow is anchored to whichever point has the MAX
+ *  CurrentPu (found by VALUE, not array index — the decay ordering
+ *  above means that isn't always puData[0] or puData[last]).
+ *
+ *  The tail offset is computed RELATIVE to the anchor and clamped to the
+ *  space actually available above/left of it (not to a fixed absolute
+ *  page coordinate). Clamping to a fixed coordinate is what caused the
+ *  earlier bug: when the anchor point sat close to the top of the plot
+ *  (a common case — the curve's highest point is only ~9% of innerH
+ *  below PAD.t once the 1.1x headroom on yMax is accounted for), the old
+ *  `Math.max(anchorY - 22, PAD.t + 12)` could clamp the tail to a Y
+ *  BELOW the anchor, inverting the arrow, sending the arrowhead off in
+ *  the wrong direction, and pushing the "t" label up into (or past) the
+ *  "LINKED FLUX (p.u.)" corner caption above the chart. Deriving the
+ *  offset from the anchor guarantees the tail is always strictly
+ *  up-and-left of the anchor, however close the anchor sits to the edge. */
 function FluxCurrentChart({
   puData, height = 220,
 }: { puData: { CurrentPu: number; FluxPU: number }[]; height?: number }) {
@@ -1343,12 +1351,21 @@ function FluxCurrentChart({
   const anchorPt = puData.reduce((max, p) => (p.CurrentPu > max.CurrentPu ? p : max), puData[0]);
   const anchorX = sx(anchorPt.CurrentPu);
   const anchorY = sy(anchorPt.FluxPU);
-  // Tail sits up-and-left of the anchor so the arrow reads "into" the
-  // curve from open chart space, mirroring the IEC reference figure,
-  // and clamped so it never leaves the plot box even when the anchor
-  // itself is near a corner.
-  const arrowTailX = Math.max(anchorX - 34, PAD.l + 8);
-  const arrowTailY = Math.max(anchorY - 22, PAD.t + 12);
+
+  // Desired tail offset (up-and-left of the anchor), shrunk to whatever
+  // room is actually available before the plot's left/top edge instead
+  // of being clamped to an absolute coordinate. This keeps the arrow
+  // direction correct (tail always above-left of the anchor) no matter
+  // how close the anchor sits to a corner.
+  const DESIRED_OFFSET_X = 34;
+  const DESIRED_OFFSET_Y = 22;
+  const MIN_OFFSET = 6;
+  const availableOffsetX = Math.max(anchorX - (PAD.l + 8), MIN_OFFSET);
+  const availableOffsetY = Math.max(anchorY - (PAD.t + 16), MIN_OFFSET);
+  const offsetX = Math.min(DESIRED_OFFSET_X, availableOffsetX);
+  const offsetY = Math.min(DESIRED_OFFSET_Y, availableOffsetY);
+  const arrowTailX = anchorX - offsetX;
+  const arrowTailY = anchorY - offsetY;
 
   // Arrowhead ticks computed from the real tail->head direction vector
   // (rotated ±25°) instead of hardcoded signs, so they always point
@@ -1414,7 +1431,7 @@ function FluxCurrentChart({
         const x = Math.max(PAD.l - 6, Math.min(raw, PAD.l + innerW - 26));
         const align = i === 0 ? "left" : i === xTicks.length - 1 ? "right" : "center";
         return (
-          <Text key={`xl${i}`} style={{ position: "absolute", left: x, top: PAD.t + innerH + 6, fontSize: 6.2, color: C.mute, width: 32, textAlign: align }}>
+          <Text key={`xl${i}`} style={{ position: "absolute", left: x, top: PAD.t + innerH + 14, fontSize: 6.2, color: C.mute, width: 32, textAlign: align }}>
             {v.toFixed(2)}
           </Text>
         );
@@ -1424,7 +1441,7 @@ function FluxCurrentChart({
         style={{
           position: "absolute",
           left: arrowTailX - 4,
-          top: arrowTailY - 13,
+          top: arrowTailY - 10,
           fontSize: 8.5,
           fontFamily: FONT_OBLIQUE,
           color: C.ink,
@@ -1436,7 +1453,7 @@ function FluxCurrentChart({
       {/* Axis captions, matching the IEC reference figure's labeled axes. */}
       <Text
         style={{
-          position: "absolute", left: PAD.l, top: PAD.t + innerH + 16, width: innerW,
+          position: "absolute", left: PAD.l, top: PAD.t + innerH + 24, width: innerW,
           textAlign: "center", fontSize: 6.4, color: C.mute, fontFamily: FONT_BOLD, letterSpacing: 0.6,
         }}
       >

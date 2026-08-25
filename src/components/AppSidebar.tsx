@@ -31,10 +31,10 @@ export function AppSidebar() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-panel transition-transform lg:static lg:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
+  className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-panel transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
+    open ? "translate-x-0" : "-translate-x-full"
+  }`}
+>
         {/* Brand */}
         <div className="flex items-center gap-3 border-b border-border px-5 py-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-card">

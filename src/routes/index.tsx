@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Gauge, Maximize2, AlertTriangle, PlugZap, Loader2 } from "lucide-react";
+import { Gauge, Maximize2, AlertTriangle, PlugZap, Loader2, CheckCircle2 } from "lucide-react";
 import { TestController } from "@/components/TestController";
 import { InterlockStatusPanel } from "@/components/InterlockStatusPanel";
 import { VoltageCurrentGraph } from "@/components/VoltageCurrentGraph";
@@ -8,7 +8,6 @@ import { StatCard } from "@/components/StatCard";
 import { BrandHeader } from "@/components/BrandHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { TestObjectSearch } from "@/components/TestObjectSearch";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { GraphModal } from "@/components/GraphModal";
 import { useReactorTesting } from "@/hooks/useReactorTesting";
 import { motion } from "framer-motion";
@@ -19,6 +18,14 @@ import type { CurrentUnit, TimeUnit } from "@/types/sample";
 import { convertCurrentUnit, currentUnitLabel } from "@/utils/unitConversion";
 import { LinearityGraphTabs } from "@/components/LinearityGraphTabs";
 import { useDummySimulation } from "@/hooks/useDummySimulation";
+import { createAnalyzedSample } from "@/utils/createAnalyzedSample";
+import {
+  computeTimeConstant,
+  computeTimeToSteadyState,
+  computeUltimateDcVoltage,
+  computeMagneticCharacteristicPu,
+} from "@/utils/reactorCalcs";
+import type { CalculatedResults } from "@/types/testObject";
 
 
 export const Route = createFileRoute("/")({
@@ -50,9 +57,11 @@ function Dashboard() {
   const [showVoltage, setShowVoltage] = useState(false);
   const [showSmoothLine, setShowSmoothLine] = useState(false);
   const [expand, setExpand] = useState(false);
-  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
-  const [pendingStatus, setPendingStatus] = useState<"passed" | "failed" | null>(null);
-  const [pendingPassFail, setPendingPassFail] = useState(false);
+
+  // Shows a brief "Saved" confirmation banner after an auto-save fires —
+  // there's no button anymore, so this is the only feedback the user gets
+  // that something was actually written to the database.
+  const [justSaved, setJustSaved] = useState<string | null>(null);
 
   const { theme, toggle } = useTheme();
   const { objects, saveReport, getReport, getObject } = useTestObjects();
@@ -128,9 +137,87 @@ function Dashboard() {
   const fmtCurrent = (v: number) =>
     convertCurrentUnit(v, currentUnit).toFixed(currentUnit === "mA" ? 0 : 2);
 
+  /**
+   * Builds the frozen calculation snapshot (tau, timeConstant,
+   * ultimateDcVoltage, magnetic characteristic, ...) and writes the report
+   * to Supabase/localStorage. Always saves as "passed" — there is no
+   * pass/fail decision anymore, this just persists whatever was recorded.
+   */
+  const doSave = (rawResult: typeof raw, analysisResult: typeof raw, peak: number, durationS: number) => {
+    if (!selectedId) return;
+
+    const obj = getObject(selectedId);
+    let calculatedResults: CalculatedResults | undefined;
+    if (obj && rawResult.length > 0) {
+      const resAt20 = obj.resAt20DegC ?? 0;
+      const { tau, breakPoint, fluxData } = createAnalyzedSample(rawResult, resAt20);
+      const timeConstant = computeTimeConstant(obj.inductance ?? 0, resAt20);
+      const timeToSteadyState = computeTimeToSteadyState(timeConstant);
+      const ultimateDcVoltage = computeUltimateDcVoltage(
+        obj.resIncreaseByLeadsPu ?? 0,
+        obj.idcForLinearityTest ?? 0,
+        obj.resAtRefTemp ?? 0,
+      );
+      const magneticCharacteristic = computeMagneticCharacteristicPu(
+        fluxData,
+        obj.inductance ?? 0,
+        obj.ratedAcRmsCurrent ?? 0,
+      );
+      calculatedResults = {
+        tau,
+        timeConstant,
+        timeToSteadyState,
+        ultimateDcVoltage,
+        breakPointCurrent: breakPoint?.current ?? null,
+        breakPointTimeSec: breakPoint ? breakPoint.timestamp / 1000 : null,
+        magneticCharacteristic,
+      };
+    }
+
+    saveReport({
+      objectId: selectedId,
+      status: "passed",
+      rawResult,
+      analysisResult,
+      calculatedResults,
+      peakCurrent: peak,
+      durationS,
+      completedAt: Date.now(),
+    });
+
+    setJustSaved(obj?.serialNumber ?? selectedId);
+    window.setTimeout(() => setJustSaved(null), 4000);
+  };
+
+  // ---- Auto-save: LIVE test ----
+  // Fires exactly once per test run, the moment phase transitions INTO
+  // "completed" (not on every render while it stays completed, and not
+  // repeatedly if raw keeps the same length).
+  const prevPhaseRef = useRef(phase);
   useEffect(() => {
-    if (phase === "completed" && selectedId && raw.length > 0) setPendingPassFail(true);
+    const justCompleted = prevPhaseRef.current !== "completed" && phase === "completed";
+    prevPhaseRef.current = phase;
+
+    if (justCompleted && selectedId && raw.length > 0) {
+      doSave(raw, analysis.length ? analysis : raw, peakCurrent, duration);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, selectedId, raw.length]);
+
+  // ---- Auto-save: SIMULATION ----
+  // Fires exactly once per simulation run, the moment sim.active
+  // transitions from true -> false (i.e. "Stop Simulation" was pressed),
+  // as long as some points were actually recorded.
+  const prevSimActiveRef = useRef(sim.active);
+  useEffect(() => {
+    const justStopped = prevSimActiveRef.current && !sim.active;
+    prevSimActiveRef.current = sim.active;
+
+    if (justStopped && selectedId && sim.points.length > 0) {
+      doSave(sim.points, sim.points, sim.peak, sim.duration);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sim.active, selectedId]);
 
   /**
    * Fires whenever a test object is selected (or cleared) in the search box.
@@ -198,35 +285,6 @@ function Dashboard() {
     }
   };
 
-  const doSave = (status: "passed" | "failed") => {
-    if (!selectedId) return;
-
-    const usingSim = !isLive && sim.points.length > 0;
-
-    saveReport({
-      objectId: selectedId,
-      status,
-      rawResult: usingSim ? sim.points : raw,
-      analysisResult: usingSim ? sim.points : analysis,
-      peakCurrent: usingSim ? sim.peak : peakCurrent,
-      durationS: usingSim ? sim.duration : duration,
-      completedAt: Date.now(),
-    });
-    setPendingPassFail(false);
-    setConfirmOverwrite(false);
-    setPendingStatus(null);
-  };
-
-  const finalize = (status: "passed" | "failed") => {
-    if (!selectedId) return;
-    if (hasExistingReport) {
-      setPendingStatus(status);
-      setConfirmOverwrite(true);
-      return;
-    }
-    doSave(status);
-  };
-
   const showSim = !isLive && sim.active;
 
   const graphView = (
@@ -272,6 +330,15 @@ function Dashboard() {
             </div>
             <TestObjectSearch objects={objects} selectedId={selectedId} onSelect={handleSelectObject} />
           </div>
+
+          {/* Auto-save confirmation — the only feedback since there's no
+             manual Save/Pass/Fail button anymore. */}
+          {justSaved && (
+            <div className="flex items-center gap-2 rounded-md border border-[var(--ok)]/40 bg-[var(--ok)]/10 px-4 py-2 font-mono text-xs text-[var(--ok)]">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>Report saved for {justSaved}.</span>
+            </div>
+          )}
 
           {/* Modbus write-in-progress banner — shows which register is being
              written right now and how many retry attempts are left, polled
@@ -387,17 +454,8 @@ function Dashboard() {
                   onClick={sim.active ? sim.stop : sim.start}
                   className="rounded-md bg-[var(--current)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110"
                 >
-                  {sim.active ? "Stop Simulation" : "Start Simulation"}
+                  {sim.active ? "Stop Simulation (auto-saves)" : "Start Simulation"}
                 </button>
-                {sim.points.length > 0 && (
-                  <button
-                    onClick={() => selectedId && setPendingPassFail(true)}
-                    disabled={!selectedId}
-                    className="rounded-md bg-[var(--ok)] px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-background hover:brightness-110 disabled:opacity-40"
-                  >
-                    Save Simulation
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -411,39 +469,6 @@ function Dashboard() {
       <GraphModal open={expand} onClose={() => setExpand(false)} title="Reactor Linearity Curve">
         {graphView}
       </GraphModal>
-
-      {/* <ConfirmDialog
-        open={confirmOverwrite}
-        title="Overwrite existing report?"
-        description={
-          <>
-            A report already exists for{" "}
-            <span className="font-semibold text-foreground">{selectedObject?.serialNumber}</span>.
-            Saving this run will <strong className="text-destructive">overwrite</strong> the previously
-            stored data. Continue?
-          </>
-        }
-        destructive
-        confirmLabel="Overwrite & Save"
-        onCancel={() => { setConfirmOverwrite(false); setPendingStatus(null); }}
-        onConfirm={() => pendingStatus && doSave(pendingStatus)}
-      /> */}
-{/* 
-      {pendingPassFail && !confirmOverwrite && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 backdrop-blur-md">
-          <div className="panel w-full max-w-md p-6 text-center">
-            <h2 className="font-display text-lg font-bold tracking-wide text-foreground">Mark Test Result</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Test for <span className="font-semibold text-foreground">{selectedObject?.serialNumber}</span> completed.
-              Save it as Passed or Failed?
-            </p>
-            <div className="mt-6 flex justify-center gap-3">
-              <button onClick={() => finalize("failed")} className="rounded-md bg-destructive px-5 py-2 text-xs font-bold uppercase tracking-widest text-destructive-foreground hover:brightness-110">Failed</button>
-              <button onClick={() => finalize("passed")} className="rounded-md bg-[var(--ok)] px-5 py-2 text-xs font-bold uppercase tracking-widest text-background hover:brightness-110">Passed</button>
-            </div>
-          </div>
-        </div>
-      )} */}
     </>
   );
 }

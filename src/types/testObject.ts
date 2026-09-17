@@ -62,6 +62,34 @@ export interface TestObject {
   status: TestStatus;
 }
 
+export interface MagneticCharacteristicsPoint {
+  CurrentPu: number;
+  FluxPU: number;
+}
+
+/**
+ * Snapshot of every derived/calculated value for a completed test, frozen
+ * at the moment the report is saved. Stored permanently (not recomputed
+ * from raw_result each time a report is reopened) so historical reports
+ * stay accurate even if the calculation formulas change later.
+ */
+export interface CalculatedResults {
+  /** Locked time constant from calculateTau(), seconds. Null if it never locked. */
+  tau: number | null;
+  /** L / R @ 20°C, seconds. */
+  timeConstant: number;
+  /** 5 x timeConstant, seconds. */
+  timeToSteadyState: number;
+  /** resIncreaseByLeadsPu x idcForLinearityTest x resAtRefTemp, V. */
+  ultimateDcVoltage: number;
+  /** Current at the point tau-lock broke (noise boundary), A. Null if never broke. */
+  breakPointCurrent: number | null;
+  /** Timestamp (seconds) of the break point. Null if never broke. */
+  breakPointTimeSec: number | null;
+  /** Per-unit magnetic characteristic curve (flux vs current), for the flux-curve graph. */
+  magneticCharacteristic: MagneticCharacteristicsPoint[];
+}
+
 export interface TestReport {
   objectId: string;
   status: Exclude<TestStatus, "pending">;
@@ -69,6 +97,9 @@ export interface TestReport {
   rawResult: RawPoint[];
   /** Median-of-4 downsampled dataset (1 ms cadence) computed after completion. */
   analysisResult: RawPoint[];
+  /** Frozen calculation snapshot — see CalculatedResults. Optional only for
+   *  backward compatibility with reports saved before this field existed. */
+  calculatedResults?: CalculatedResults;
   peakCurrent: number;
   durationS: number;
   completedAt: number;

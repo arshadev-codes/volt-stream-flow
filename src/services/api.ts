@@ -1,39 +1,96 @@
-/**
- * Thin HTTP client targeting the user-hosted MySQL-backed API.
- * The backend reference implementation lives in /server-mysql.
- *
- * Set VITE_API_BASE_URL to point at it, e.g.
- *   VITE_API_BASE_URL=http://localhost:4000
- *
- * When unset, the store falls back to localStorage so the app keeps
- * working without a backend.
- */
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+// src/services/api.ts
+//
+// Supabase-backed replacement for the old self-hosted MySQL API
+// (previously /server-mysql, now removed).
+//
+// Reads VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY from .env.local.
+// When those are unset, isApiEnabled() returns false and
+// testObjectStore.ts falls back to localStorage only — same behavior
+// as before, just swapped from "is VITE_API_BASE_URL set" to
+// "is Supabase configured".
+//
+// IMPORTANT: This file's exported shape (isApiEnabled, api.listObjects,
+// api.getObject, api.createObject, api.updateObject, api.deleteObject,
+// api.saveResults) intentionally matches the old api.ts exactly, so
+// testObjectStore.ts did not need to change at all.
 
-export const isApiEnabled = () => BASE.length > 0;
+import { supabase } from "@/lib/supabaseClient";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!BASE) throw new Error("VITE_API_BASE_URL is not set");
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "content-type": "application/json", ...(init?.headers || {}) },
-    ...init,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${body}`);
-  }
-  return (await res.json()) as T;
-}
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+
+export const isApiEnabled = () => Boolean(SUPABASE_URL);
+
+const TABLE = "test_objects";
 
 export const api = {
-  listObjects: () => request<any[]>("/api/test-objects"),
-  getObject: (id: number | string) => request<any>(`/api/test-objects/${id}`),
-  createObject: (body: any) =>
-    request<any>("/api/test-objects", { method: "POST", body: JSON.stringify(body) }),
-  updateObject: (id: number | string, body: any) =>
-    request<any>(`/api/test-objects/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-  deleteObject: (id: number | string) =>
-    request<{ ok: true }>(`/api/test-objects/${id}`, { method: "DELETE" }),
-  saveResults: (id: number | string, body: { raw_result: string; analysis_result: string }) =>
-    request<any>(`/api/test-objects/${id}/results`, { method: "POST", body: JSON.stringify(body) }),
+  listObjects: async () => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data ?? [];
+  },
+
+  /** Returns the existing row for this serial number, or null if free to use. */
+  findBySerial: async (serialNumber: string) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("id")
+      .eq("serial_number", serialNumber)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  },
+
+  getObject: async (id: number | string) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("*")
+      .eq("id", id)
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  createObject: async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .insert(body)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  updateObject: async (id: number | string, body: Record<string, unknown>) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update(body)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  deleteObject: async (id: number | string) => {
+    const { error } = await supabase.from(TABLE).delete().eq("id", id);
+    if (error) throw error;
+    return { ok: true as const };
+  },
+
+  saveResults: async (
+    id: number | string,
+    body: { raw_result: string; analysis_result: string },
+  ) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update(body)
+      .eq("id", id)
+      .select("id, modified_at")
+      .single();
+    if (error) throw error;
+    return { ok: true, ...data };
+  },
 };

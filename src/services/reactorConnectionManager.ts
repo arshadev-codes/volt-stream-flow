@@ -2,7 +2,7 @@ import type { RawPoint, ReactorPhase, InterlockStatus } from "@/types/sample";
 import { createSignalRSource, type HardwareSource } from "@/services/signalRSource";
 import { subscribeSettings, getSettings, type AppSettings } from "@/services/settings";
 
-const HUB_URL = "https://localhost:7115/hubs/linearity";
+const HUB_URL = "http://localhost:5274/hubs/linearity";
 
 export type SourceEvent = {
   interlock?: InterlockStatus;

@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Boxes, Plus, Trash2, CheckCircle2, XCircle, Circle, Lock } from "lucide-react";
+import { Boxes, Plus, Trash2, Pencil, X, CheckCircle2, XCircle, Circle, Lock } from "lucide-react";
 import { BrandHeader } from "@/components/BrandHeader";
 import { useTheme } from "@/hooks/useTheme";
 import { useTestObjects } from "@/hooks/useTestObjects";
-import type { TestStatus, PhaseCount, PowerUnit, VoltageUnit, ResLeadsUnit } from "@/types/testObject";
+import type { TestObject, TestStatus, PhaseCount, PowerUnit, VoltageUnit, ResLeadsUnit } from "@/types/testObject";
 import {
   computeRatedPowerVA,
   computeRatedAcRmsCurrent,
@@ -55,12 +55,53 @@ const EMPTY = {
 
 function SetupPage() {
   const { theme, toggle } = useTheme();
-  const { objects, create, remove } = useTestObjects();
+  const { objects, create, update: updateObject, remove } = useTestObjects();
   const { settings } = useSettings();
   const [form, setForm] = useState(EMPTY);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const update = <K extends keyof typeof EMPTY>(k: K, v: typeof EMPTY[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  /**
+   * Loads an existing object's values back into the form for editing.
+   * NOTE: the original "unit" chosen for Rated Voltage and Res Increase
+   * by Leads isn't stored (only the already-converted base value is), so
+   * those two unit dropdowns reset to their defaults (V / %) here — the
+   * underlying numeric value is still correct either way.
+   */
+  const objectToForm = (o: TestObject): typeof EMPTY => ({
+    serialNumber: o.serialNumber,
+    name: o.name ?? "",
+    manufacturer: o.manufacturer ?? "",
+    projectName: o.projectName ?? "",
+    customerName: o.customerName ?? "",
+    workOrder: o.workOrder ?? "",
+    frequency: o.frequency ?? 0,
+    inductance: o.inductance ?? 0,
+    notes: o.notes ?? "",
+
+    ratedPowerValue: o.ratedPowerValue ?? 0,
+    ratedPowerUnit: (o.ratedPowerUnit as PowerUnit) ?? "MVAR",
+    ratedVoltageNameplate: o.ratedVoltageNameplate ?? 0,
+    ratedVoltageUnit: "V",
+    phases: (o.phases as PhaseCount) ?? 3,
+    resAtRefTemp: o.resAtRefTemp ?? 0,
+    refTempForRes: o.refTempForRes ?? 75,
+    resIncreaseByLeadsPu: o.resIncreaseByLeadsPu ?? 0,
+    resIncreaseByLeadsUnit: "%",
+  });
+
+  const startEdit = (o: TestObject) => {
+    setForm(objectToForm(o));
+    setEditingId(o.id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setForm(EMPTY);
+    setEditingId(null);
+  };
 
   // ---- Locked, computed nameplate fields (live preview) ----
   const ratedPowerVA = useMemo(
@@ -85,7 +126,9 @@ function SetupPage() {
     [ratedAcRmsCurrent, currentMultiplier],
   );
 
-  const submit = (e: React.FormEvent) => {
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!form.serialNumber.trim()) {
@@ -109,13 +152,21 @@ function SetupPage() {
       return;
     }
 
-    create({
+    setSaving(true);
+    const payload = {
       serialNumber: form.serialNumber.trim(),
       name: form.name.trim(),
       manufacturer: form.manufacturer.trim() || undefined,
       projectName: form.projectName.trim(),
       customerName: form.customerName.trim(),
       workOrder: form.workOrder.trim(),
+
+      // FIX: these three are required on TestObject but were never being
+      // set here, so rated_voltage / rated_current always saved as 0.
+      ratedVoltage: ratedVoltageV || 0,
+      maxVoltage: ratedVoltageV || 0,
+      ratedCurrent: ratedAcRmsCurrent || 0,
+
       frequency: Number(form.frequency) || undefined,
       inductance: Number(form.inductance) || undefined,
       notes: form.notes.trim() || undefined,
@@ -125,20 +176,28 @@ function SetupPage() {
       ratedPowerVA: ratedPowerVA || undefined,
 
       ratedVoltageNameplate: ratedVoltageV || undefined,
-      ratedVoltageUnit: form.ratedVoltageUnit,
 
       phases: (Number(form.phases) as PhaseCount) || undefined,
       resAtRefTemp: Number(form.resAtRefTemp) || undefined,
       refTempForRes: Number(form.refTempForRes) || undefined,
       resIncreaseByLeadsPu: Number(form.resIncreaseByLeadsPu) || undefined,
-      resIncreaseByLeadsUnit: form.resIncreaseByLeadsUnit,
 
       ratedAcRmsCurrent: ratedAcRmsCurrent || undefined,
       resAt20DegC: resAt20DegC || undefined,
       idcForLinearityTest: idcForLinearityTest || undefined,
-      puLinearity: currentMultiplier,
-    });
+    };
+
+    const result = editingId
+      ? await updateObject(editingId, payload)
+      : await create(payload);
+    setSaving(false);
+
+    if (!result.ok) {
+      alert(result.error);
+      return;
+    }
     setForm(EMPTY);
+    setEditingId(null);
   };
 
   return (
@@ -148,9 +207,20 @@ function SetupPage() {
 
         <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
           <form onSubmit={submit} className="panel space-y-4 p-6">
-            <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.2em]">
-              <Plus className="h-4 w-4 text-amber-500" />
-              Create Test Object
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.2em]">
+                {editingId ? <Pencil className="h-4 w-4 text-amber-500" /> : <Plus className="h-4 w-4 text-amber-500" />}
+                {editingId ? "Edit Test Object" : "Create Test Object"}
+              </div>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:bg-accent"
+                >
+                  <X className="h-3 w-3" /> Cancel
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -259,8 +329,12 @@ function SetupPage() {
               />
             </label>
 
-            <button type="submit" className="w-full rounded-md bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-background hover:brightness-110">
-              Create Object
+            <button
+              type="submit"
+              disabled={saving}
+              className="w-full rounded-md bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-background hover:brightness-110 disabled:opacity-60"
+            >
+              {saving ? "Saving..." : editingId ? "Update Object" : "Create Object"}
             </button>
           </form>
 
@@ -294,13 +368,22 @@ function SetupPage() {
                       {o.customerName ? ` · ${o.customerName}` : ""}
                     </div>
                   </div>
-                  <button
-                    onClick={() => confirm(`Delete ${o.serialNumber}? Its report will also be deleted.`) && remove(o.id)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-                    aria-label="Delete"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button
+                      onClick={() => startEdit(o)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="Edit"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => confirm(`Delete ${o.serialNumber}? Its report will also be deleted.`) && remove(o.id)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
